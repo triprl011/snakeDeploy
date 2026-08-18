@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Snake - Обучение с PyTorch</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.15.1/dist/ort.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>🐍 AI Snake Обучение</h1>
+
+        <div class="stats">
+            <div class="stat-item">
+                <span>Поколение:</span>
+                <span id="generation">0</span>
+            </div>
+            <div class="stat-item">
+                <span>Счет:</span>
+                <span id="score">0</span>
+            </div>
+            <div class="stat-item">
+                <span>Лучший счет:</span>
+                <span id="best-score">0</span>
+            </div>
+            <div class="stat-item">
+                <span>Шагов:</span>
+                <span id="steps">0</span>
+            </div>
+        </div>
+
+        <canvas id="gameCanvas" width="400" height="400"></canvas>
+
+        <div class="controls">
+            <button id="startBtn" onclick="startTraining()">▶ Начать обучение</button>
+            <button id="pauseBtn" onclick="togglePause()">⏸ Пауза</button>
+            <button id="resetBtn" onclick="resetGame()">🔄 Сброс</button>
+            <button id="speedBtn" onclick="toggleSpeed()">⚡ Скорость: 1x</button>
+        </div>
+
+        <div class="info">
+            <p>Обучение с подкреплением (DQN) | PyTorch → ONNX</p>
+            <div class="progress-bar">
+                <div id="progressFill" class="progress-fill"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
