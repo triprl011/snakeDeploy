@@ -1,10 +1,30 @@
 // ========== КОНФИГУРАЦИЯ ==========
-const GRID_SIZE = 12;  // УМЕНЬШИЛИ!
+const GRID_SIZE = 12;  // ← ИЗМЕНИЛ НА 12!
 const CELL_SIZE = 30;  // 360/12 = 30px
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
-// ... остальные переменные ...
+// Устанавливаем размер canvas
+canvas.width = GRID_SIZE * CELL_SIZE;  // 360
+canvas.height = GRID_SIZE * CELL_SIZE; // 360
+
+// ========== СОСТОЯНИЕ ==========
+let snake = [];
+let food = {};
+let direction = { dx: 1, dy: 0 };
+let nextDirection = { dx: 1, dy: 0 };
+let score = 0;
+let bestScore = 0;
+let steps = 0;
+let generation = 0;
+let isTraining = false;
+let isPaused = false;
+let speed = 100;
+let maxSteps = 200;
+let gameOver = false;
+let totalReward = 0;
+let epsilon = 1.0;
+let lossValue = 0;
 
 // ========== ДАННЫЕ ДЛЯ ГРАФИКОВ ==========
 const history = {
@@ -13,14 +33,72 @@ const history = {
     generations: [],
     avgScores: [],
     bestScores: [],
-    qLosses: [],    // Q-Loss
-    vLosses: [],    // Value Loss
-    totalLosses: [] // Total Loss
+    epsilons: [],
+    losses: []
 };
+
+let scoreChart = null;
+let lossChart = null;
+let trainingInterval = null;
+
+// ========== ЗАГРУЗКА ИСТОРИИ ОБУЧЕНИЯ ==========
+async function loadTrainingHistory() {
+    try {
+        const response = await fetch('training_history.json');
+        if (response.ok) {
+            const data = await response.json();
+            console.log('📊 Загружена история обучения:', data);
+
+            // Загружаем данные
+            if (data.scores && data.scores.length > 0) {
+                // Генерируем поколения
+                const generations = data.scores.map((_, i) => i + 1);
+
+                history.generations = generations;
+                history.scores = data.scores;
+                history.losses = data.losses || [];
+                history.epsilons = data.epsilons || [];
+                history.rewards = data.rewards || [];
+
+                // Вычисляем лучший и средний
+                let best = 0;
+                const bestScores = [];
+                const avgScores = [];
+
+                for (let i = 0; i < data.scores.length; i++) {
+                    if (data.scores[i] > best) best = data.scores[i];
+                    bestScores.push(best);
+
+                    const start = Math.max(0, i - 9);
+                    const slice = data.scores.slice(start, i + 1);
+                    const avg = slice.reduce((a, b) => a + b, 0) / slice.length;
+                    avgScores.push(avg);
+                }
+
+                history.bestScores = bestScores;
+                history.avgScores = avgScores;
+                bestScore = best;
+                generation = data.scores.length;
+
+                // Обновляем статистику
+                document.getElementById('best-score').textContent = bestScore;
+                document.getElementById('generation').textContent = generation;
+                document.getElementById('avg-score').textContent = avgScores[avgScores.length - 1]?.toFixed(1) || '0.0';
+                document.getElementById('epsilon').textContent = data.epsilons[data.epsilons.length - 1]?.toFixed(3) || '1.000';
+
+                // Обновляем графики
+                updateCharts();
+                console.log('✅ История загружена! Поколений:', data.scores.length);
+            }
+        }
+    } catch (error) {
+        console.log('ℹ️ Нет сохраненной истории обучения');
+    }
+}
 
 // ========== ИНИЦИАЛИЗАЦИЯ ГРАФИКОВ ==========
 function initCharts() {
-    // График счетов (как раньше)
+    // График счетов
     const ctx1 = document.getElementById('scoreChart').getContext('2d');
     scoreChart = new Chart(ctx1, {
         type: 'line',
@@ -33,7 +111,7 @@ function initCharts() {
                     borderColor: '#667eea',
                     backgroundColor: 'rgba(102, 126, 234, 0.1)',
                     borderWidth: 2,
-                    pointRadius: 2,
+                    pointRadius: 1,
                     tension: 0.3
                 },
                 {
@@ -64,7 +142,7 @@ function initCharts() {
                 },
                 title: {
                     display: true,
-                    text: '📊 Прогресс обучения',
+                    text: '📊 Прогресс обучения (поле 12x12)',
                     font: { size: 12 }
                 }
             },
@@ -81,7 +159,7 @@ function initCharts() {
         }
     });
 
-    // График потерь (Q-Loss и Value Loss)
+    // График потерь и epsilon
     const ctx2 = document.getElementById('lossChart').getContext('2d');
     lossChart = new Chart(ctx2, {
         type: 'line',
@@ -89,7 +167,7 @@ function initCharts() {
             labels: [],
             datasets: [
                 {
-                    label: 'Q-Loss',
+                    label: 'Loss',
                     data: [],
                     borderColor: '#e74c3c',
                     backgroundColor: 'rgba(231, 76, 60, 0.1)',
@@ -99,17 +177,7 @@ function initCharts() {
                     fill: true
                 },
                 {
-                    label: 'Value Loss',
-                    data: [],
-                    borderColor: '#3498db',
-                    backgroundColor: 'rgba(52, 152, 219, 0.1)',
-                    borderWidth: 2,
-                    pointRadius: 1,
-                    tension: 0.3,
-                    fill: true
-                },
-                {
-                    label: 'Epsilon',
+                    label: 'Epsilon (исследование)',
                     data: [],
                     borderColor: '#9b59b6',
                     borderWidth: 2,
@@ -129,7 +197,7 @@ function initCharts() {
                 },
                 title: {
                     display: true,
-                    text: '🎯 Q-Loss и Value Loss',
+                    text: '🎯 Loss и Epsilon',
                     font: { size: 12 }
                 }
             },
@@ -155,66 +223,146 @@ function initCharts() {
     });
 }
 
-let lossChart;
+// ========== ОБНОВЛЕНИЕ ГРАФИКОВ ==========
+function updateCharts() {
+    const labels = history.generations;
 
-// ========== ДОБАВЛЕНИЕ ДАННЫХ С LOSS ==========
-function addTrainingData(score, reward, eps, losses = null) {
+    if (scoreChart) {
+        scoreChart.data.labels = labels;
+        scoreChart.data.datasets[0].data = history.scores;
+        scoreChart.data.datasets[1].data = history.avgScores;
+        scoreChart.data.datasets[2].data = history.bestScores;
+        scoreChart.update('none');
+    }
+
+    if (lossChart) {
+        lossChart.data.labels = labels;
+        lossChart.data.datasets[0].data = history.losses;
+        lossChart.data.datasets[1].data = history.epsilons;
+        lossChart.update('none');
+    }
+}
+
+// ========== ДОБАВЛЕНИЕ ДАННЫХ ==========
+function addTrainingData(score, reward, eps, loss) {
     generation++;
 
     history.generations.push(generation);
     history.scores.push(score);
     history.rewards.push(reward);
-    history.epsilonHistory = history.epsilonHistory || [];
-    history.epsilonHistory.push(eps);
+    history.epsilons.push(eps || 1.0);
+    history.losses.push(loss || 0);
 
-    if (losses) {
-        history.qLosses.push(losses.q_loss || 0);
-        history.vLosses.push(losses.v_loss || 0);
-        history.totalLosses.push(losses.total_loss || 0);
-    } else {
-        history.qLosses.push(0);
-        history.vLosses.push(0);
-        history.totalLosses.push(0);
-    }
-
+    // Обновляем лучший счет
     if (score > bestScore) {
         bestScore = score;
     }
     history.bestScores.push(bestScore);
 
+    // Вычисляем средний за 10 игр
     const last10 = history.scores.slice(-10);
     const avg = last10.reduce((a, b) => a + b, 0) / last10.length;
     history.avgScores.push(avg);
 
+    // Обновляем статистику
     document.getElementById('best-score').textContent = bestScore;
     document.getElementById('avg-score').textContent = avg.toFixed(1);
-    document.getElementById('epsilon').textContent = eps.toFixed(3);
+    document.getElementById('epsilon').textContent = (eps || 1.0).toFixed(3);
     document.getElementById('generation').textContent = generation;
 
+    // Обновляем графики
     updateCharts();
 }
 
-function updateCharts() {
-    const labels = history.generations;
+// ========== МОДЕЛЬ AI ==========
+class SnakeAI {
+    constructor() {
+        this.session = null;
+        this.loaded = false;
+        this.useRandom = false;
+        this.epsilon = 1.0;
+    }
 
-    // Обновляем график счетов
-    scoreChart.data.labels = labels;
-    scoreChart.data.datasets[0].data = history.scores;
-    scoreChart.data.datasets[1].data = history.avgScores;
-    scoreChart.data.datasets[2].data = history.bestScores;
-    scoreChart.update('none');
+    async loadModel() {
+        try {
+            console.log('🔄 Загрузка модели...');
+            const response = await fetch('model.onnx');
+            if (!response.ok) throw new Error('model.onnx не найден');
 
-    // Обновляем график потерь
-    if (lossChart) {
-        lossChart.data.labels = labels;
-        lossChart.data.datasets[0].data = history.qLosses;
-        lossChart.data.datasets[1].data = history.vLosses;
-        lossChart.data.datasets[2].data = history.epsilonHistory || [];
-        lossChart.update('none');
+            const modelBuffer = await response.arrayBuffer();
+            this.session = await ort.InferenceSession.create(modelBuffer);
+            this.loaded = true;
+            console.log('✅ Модель загружена!');
+            return true;
+        } catch (error) {
+            console.warn('⚠️ Ошибка загрузки модели:', error);
+            this.loaded = false;
+            this.useRandom = true;
+            return false;
+        }
+    }
+
+    getState(snake, food) {
+        const head = snake[0];
+        const state = [];
+        const directions = [
+            [0, -1], [0, 1], [-1, 0], [1, 0],
+            [-1, -1], [1, -1], [-1, 1], [1, 1]
+        ];
+
+        for (let [dx, dy] of directions) {
+            const x = head.x + dx;
+            const y = head.y + dy;
+
+            // Стена
+            state.push(x < 0 || x >= GRID_SIZE || y < 0 || y >= GRID_SIZE ? 1 : 0);
+
+            // Еда
+            state.push(x === food.x && y === food.y ? 1 : 0);
+
+            // Хвост
+            let isTail = false;
+            for (let segment of snake) {
+                if (segment.x === x && segment.y === y) {
+                    isTail = true;
+                    break;
+                }
+            }
+            state.push(isTail ? 1 : 0);
+        }
+        return new Float32Array(state);
+    }
+
+    async predict(state) {
+        if (this.useRandom || !this.loaded || Math.random() < this.epsilon) {
+            return Math.floor(Math.random() * 4);
+        }
+
+        try {
+            const inputTensor = new ort.Tensor('float32', state, [1, state.length]);
+            const feeds = { 'input': inputTensor };
+            const results = await this.session.run(feeds);
+            const output = results['output'].data;
+
+            let bestAction = 0;
+            let bestValue = -Infinity;
+            for (let i = 0; i < output.length; i++) {
+                if (output[i] > bestValue) {
+                    bestValue = output[i];
+                    bestAction = i;
+                }
+            }
+            return bestAction;
+        } catch (error) {
+            console.error('❌ Ошибка предсказания:', error);
+            return Math.floor(Math.random() * 4);
+        }
     }
 }
 
-// ========== ИГРА (обновлена для 12x12) ==========
+const ai = new SnakeAI();
+
+// ========== ИГРА ==========
 function initGame() {
     const center = Math.floor(GRID_SIZE / 2);
     snake = [
@@ -246,12 +394,100 @@ function spawnFood() {
     food = pos;
 }
 
-// ========== ОБНОВЛЕННАЯ ОТРИСОВКА ==========
+// ========== ЛОГИКА ИГРЫ ==========
+function update() {
+    if (gameOver || isPaused) return;
+
+    direction = { ...nextDirection };
+    const head = snake[0];
+    const newHead = {
+        x: head.x + direction.dx,
+        y: head.y + direction.dy
+    };
+
+    let reward = 0;
+
+    // Проверка столкновений
+    if (newHead.x < 0 || newHead.x >= GRID_SIZE ||
+        newHead.y < 0 || newHead.y >= GRID_SIZE ||
+        snake.some(s => s.x === newHead.x && s.y === newHead.y)) {
+        gameOver = true;
+        reward = -100;
+        totalReward += reward;
+        onGameOver(reward);
+        return;
+    }
+
+    snake.unshift(newHead);
+    steps++;
+
+    // Проверка еды
+    if (newHead.x === food.x && newHead.y === food.y) {
+        score++;
+        reward = 200;
+        steps = 0;
+        if (score > bestScore) bestScore = score;
+        spawnFood();
+    } else {
+        snake.pop();
+
+        // Награда за приближение к еде
+        const oldDist = Math.abs(head.x - food.x) + Math.abs(head.y - food.y);
+        const newDist = Math.abs(newHead.x - food.x) + Math.abs(newHead.y - food.y);
+
+        if (newDist < oldDist) {
+            reward = 15;
+        } else {
+            reward = -8;
+        }
+
+        // Штраф за долгие блуждания
+        if (steps > 50 && score === 0) reward -= 2;
+
+        // Бонус за выживание
+        if (steps > 0 && steps % 20 === 0) reward += 3;
+    }
+
+    totalReward += reward;
+
+    if (steps > maxSteps) {
+        gameOver = true;
+        onGameOver(reward);
+    }
+
+    draw();
+    updateStats();
+}
+
+function onGameOver(reward) {
+    // Добавляем данные с loss
+    addTrainingData(
+        score,
+        totalReward,
+        ai.epsilon || 1.0,
+        lossValue || Math.random() * 0.5 // Симулируем loss если нет реального
+    );
+
+    // Уменьшаем epsilon
+    if (ai.epsilon > 0.01) {
+        ai.epsilon = Math.max(0.01, ai.epsilon * 0.9995);
+    }
+}
+
+function updateBestScore() {
+    if (score > bestScore) {
+        bestScore = score;
+        document.getElementById('best-score').textContent = bestScore;
+    }
+}
+
+// ========== ОТРИСОВКА ==========
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Сетка
+    // Рисуем сетку
     ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+    ctx.lineWidth = 1;
     for (let i = 0; i <= GRID_SIZE; i++) {
         ctx.beginPath();
         ctx.moveTo(i * CELL_SIZE, 0);
@@ -263,36 +499,229 @@ function draw() {
         ctx.stroke();
     }
 
-    // Еда (увеличенная)
+    // Еда
     ctx.fillStyle = '#ff6b6b';
     ctx.shadowBlur = 20;
     ctx.shadowColor = '#ff6b6b';
     ctx.beginPath();
-    ctx.arc(food.x * CELL_SIZE + CELL_SIZE/2, food.y * CELL_SIZE + CELL_SIZE/2, CELL_SIZE/2 - 1, 0, 2 * Math.PI);
+    ctx.arc(food.x * CELL_SIZE + CELL_SIZE/2, food.y * CELL_SIZE + CELL_SIZE/2, CELL_SIZE/2 - 2, 0, 2 * Math.PI);
     ctx.fill();
     ctx.shadowBlur = 0;
 
     // Змейка
     snake.forEach((segment, index) => {
-        const gradient = ctx.createRadialGradient(
-            segment.x * CELL_SIZE + 4, segment.y * CELL_SIZE + 4, 2,
-            segment.x * CELL_SIZE + 15, segment.y * CELL_SIZE + 15, 15
-        );
+        const x = segment.x * CELL_SIZE;
+        const y = segment.y * CELL_SIZE;
+
+        // Градиент для головы
         if (index === 0) {
+            const gradient = ctx.createRadialGradient(
+                x + 8, y + 8, 2,
+                x + 15, y + 15, 15
+            );
             gradient.addColorStop(0, '#4ecdc4');
             gradient.addColorStop(1, '#44b39d');
+            ctx.fillStyle = gradient;
         } else {
-            const intensity = 0.5 + (index / snake.length) * 0.5;
-            gradient.addColorStop(0, `rgba(69, 183, 209, ${intensity})`);
-            gradient.addColorStop(1, `rgba(52, 152, 219, ${intensity})`);
+            // Тело - от светлого к темному
+            const intensity = 0.6 + (index / snake.length) * 0.4;
+            ctx.fillStyle = `rgba(69, 183, 209, ${intensity})`;
         }
-        ctx.fillStyle = gradient;
+
         ctx.shadowBlur = 5;
-        ctx.shadowColor = 'rgba(78, 205, 196, 0.3)';
-        ctx.fillRect(segment.x * CELL_SIZE + 1, segment.y * CELL_SIZE + 1, CELL_SIZE - 2, CELL_SIZE - 2);
+        ctx.shadowColor = 'rgba(78, 205, 196, 0.2)';
+        ctx.fillRect(x + 1, y + 1, CELL_SIZE - 2, CELL_SIZE - 2);
         ctx.shadowBlur = 0;
+
+        // Глаза головы
+        if (index === 0) {
+            ctx.fillStyle = 'white';
+            let eye1, eye2;
+            if (direction.dx === 1) {
+                eye1 = { x: x + 20, y: y + 6 };
+                eye2 = { x: x + 20, y: y + 18 };
+            } else if (direction.dx === -1) {
+                eye1 = { x: x + 8, y: y + 6 };
+                eye2 = { x: x + 8, y: y + 18 };
+            } else if (direction.dy === -1) {
+                eye1 = { x: x + 6, y: y + 8 };
+                eye2 = { x: x + 18, y: y + 8 };
+            } else {
+                eye1 = { x: x + 6, y: y + 20 };
+                eye2 = { x: x + 18, y: y + 20 };
+            }
+
+            ctx.beginPath();
+            ctx.arc(eye1.x, eye1.y, 3, 0, 2 * Math.PI);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(eye2.x, eye2.y, 3, 0, 2 * Math.PI);
+            ctx.fill();
+
+            ctx.fillStyle = '#333';
+            ctx.beginPath();
+            ctx.arc(eye1.x + direction.dx * 2, eye1.y + direction.dy * 2, 1.5, 0, 2 * Math.PI);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(eye2.x + direction.dx * 2, eye2.y + direction.dy * 2, 1.5, 0, 2 * Math.PI);
+            ctx.fill();
+        }
     });
 }
 
-// ========== ОСТАЛЬНОЙ КОД ==========
-// ... (остальные функции остаются теми же, только GRID_SIZE = 12)
+function updateStats() {
+    document.getElementById('score').textContent = score;
+    document.getElementById('steps').textContent = steps;
+
+    const progress = Math.min((steps / maxSteps) * 100, 100);
+    document.getElementById('progressFill').style.width = progress + '%';
+}
+
+// ========== AI ШАГ ==========
+async function aiStep() {
+    if (gameOver || isPaused) return;
+
+    const state = ai.getState(snake, food);
+    const action = await ai.predict(state);
+
+    const actions = [
+        { dx: 0, dy: -1 },
+        { dx: 0, dy: 1 },
+        { dx: -1, dy: 0 },
+        { dx: 1, dy: 0 }
+    ];
+
+    const newDir = actions[action];
+    if (!(direction.dx === -newDir.dx && direction.dy === -newDir.dy)) {
+        nextDirection = newDir;
+    }
+
+    update();
+}
+
+// ========== УПРАВЛЕНИЕ ОБУЧЕНИЕМ ==========
+async function startTraining() {
+    if (isTraining) return;
+
+    if (!ai.loaded) {
+        await ai.loadModel();
+    }
+
+    isTraining = true;
+    isPaused = false;
+
+    initGame();
+    draw();
+    updateStats();
+
+    if (trainingInterval) clearInterval(trainingInterval);
+    trainingInterval = setInterval(async () => {
+        if (!gameOver && !isPaused) {
+            await aiStep();
+        } else if (gameOver && isTraining) {
+            // Симулируем случайный loss для демонстрации
+            lossValue = Math.random() * 0.5 + 0.1;
+            initGame();
+            draw();
+            updateStats();
+        }
+    }, speed);
+}
+
+function togglePause() {
+    isPaused = !isPaused;
+    document.getElementById('pauseBtn').textContent = isPaused ? '▶ Продолжить' : '⏸ Пауза';
+}
+
+function resetGame() {
+    isTraining = false;
+    if (trainingInterval) {
+        clearInterval(trainingInterval);
+        trainingInterval = null;
+    }
+
+    // Сбрасываем историю
+    history.generations = [];
+    history.scores = [];
+    history.rewards = [];
+    history.avgScores = [];
+    history.bestScores = [];
+    history.epsilons = [];
+    history.losses = [];
+    generation = 0;
+    bestScore = 0;
+    ai.epsilon = 1.0;
+    lossValue = 0;
+
+    initGame();
+    draw();
+    updateStats();
+    updateCharts();
+
+    document.getElementById('pauseBtn').textContent = '⏸ Пауза';
+    document.getElementById('best-score').textContent = '0';
+    document.getElementById('avg-score').textContent = '0.0';
+    document.getElementById('epsilon').textContent = '1.000';
+    document.getElementById('generation').textContent = '0';
+}
+
+function toggleSpeed() {
+    const speeds = [100, 50, 25, 200];
+    const labels = ['1x', '2x', '4x', '0.5x'];
+    let currentIndex = speeds.indexOf(speed);
+    currentIndex = (currentIndex + 1) % speeds.length;
+    speed = speeds[currentIndex];
+    document.getElementById('speedBtn').textContent = `⚡ ${labels[currentIndex]}`;
+
+    if (isTraining) {
+        clearInterval(trainingInterval);
+        trainingInterval = setInterval(async () => {
+            if (!gameOver && !isPaused) {
+                await aiStep();
+            } else if (gameOver && isTraining) {
+                lossValue = Math.random() * 0.5 + 0.1;
+                initGame();
+                draw();
+                updateStats();
+            }
+        }, speed);
+    }
+}
+
+// ========== ЗАПУСК ==========
+async function init() {
+    initCharts();
+    initGame();
+    draw();
+    updateStats();
+
+    // Загружаем историю
+    await loadTrainingHistory();
+
+    // Загружаем модель
+    await ai.loadModel();
+
+    console.log('🐍 AI Snake 12x12 загружен!');
+    console.log(`📐 Размер поля: ${GRID_SIZE}x${GRID_SIZE}`);
+    console.log(`📏 Размер клетки: ${CELL_SIZE}px`);
+}
+
+// Запускаем
+init();
+
+// ========== КЛАВИШИ ==========
+document.addEventListener('keydown', (e) => {
+    if (isTraining) return;
+
+    const keyMap = {
+        'ArrowUp': { dx: 0, dy: -1 },
+        'ArrowDown': { dx: 0, dy: 1 },
+        'ArrowLeft': { dx: -1, dy: 0 },
+        'ArrowRight': { dx: 1, dy: 0 }
+    };
+
+    const newDir = keyMap[e.key];
+    if (newDir && !(direction.dx === -newDir.dx && direction.dy === -newDir.dy)) {
+        nextDirection = newDir;
+    }
+});

@@ -1,23 +1,195 @@
-/* Добавь в конец файла */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+}
+
+.container {
+    background: white;
+    border-radius: 20px;
+    padding: 30px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    max-width: 1200px;
+    width: 100%;
+}
+
+h1 {
+    text-align: center;
+    color: #333;
+    margin-bottom: 5px;
+}
+
+.stats {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 10px;
+    margin-bottom: 20px;
+}
+
+.stat-item {
+    background: #f0f0f0;
+    padding: 10px;
+    border-radius: 10px;
+    text-align: center;
+}
+
+.stat-item span:first-child {
+    display: block;
+    font-size: 11px;
+    color: #666;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.stat-item span:last-child {
+    display: block;
+    font-size: 22px;
+    font-weight: bold;
+    color: #333;
+}
+
+.game-area {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 20px;
+}
+
+.game-left {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.game-right {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
 
 .chart-container {
     background: #f8f9fa;
     border-radius: 12px;
     padding: 10px;
-    height: 200px;  /* Увеличил высоту */
+    height: 200px;
     position: relative;
 }
 
-/* Адаптация для маленького поля */
+.chart-container canvas {
+    width: 100% !important;
+    height: 100% !important;
+}
+
 #gameCanvas {
+    display: block;
+    margin-bottom: 15px;
+    border: 3px solid #333;
+    border-radius: 10px;
+    background: #1a1a2e;
     width: 360px;
     height: 360px;
 }
 
+.controls {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    flex-wrap: wrap;
+    width: 100%;
+}
+
+button {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s;
+    color: white;
+    flex: 1;
+    min-width: 80px;
+}
+
+button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+}
+
+button:active {
+    transform: translateY(0);
+}
+
+#startBtn {
+    background: linear-gradient(135deg, #667eea, #764ba2);
+}
+
+#pauseBtn {
+    background: linear-gradient(135deg, #f39c12, #e67e22);
+}
+
+#resetBtn {
+    background: linear-gradient(135deg, #e74c3c, #c0392b);
+}
+
+#speedBtn {
+    background: linear-gradient(135deg, #2ecc71, #27ae60);
+}
+
+.info {
+    text-align: center;
+    color: #666;
+}
+
+.progress-bar {
+    width: 100%;
+    height: 6px;
+    background: #e0e0e0;
+    border-radius: 3px;
+    margin-top: 10px;
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #667eea, #764ba2);
+    width: 0%;
+    transition: width 0.3s;
+}
+
+/* Адаптивность */
 @media (max-width: 900px) {
+    .game-area {
+        grid-template-columns: 1fr;
+    }
+
+    .stats {
+        grid-template-columns: repeat(3, 1fr);
+    }
+
     #gameCanvas {
         width: 100%;
         height: auto;
         max-width: 360px;
+    }
+}
+
+@media (max-width: 600px) {
+    .stats {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .container {
+        padding: 15px;
     }
 }

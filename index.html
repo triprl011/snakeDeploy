@@ -3,14 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Snake - DQN with Value Loss</title>
+    <title>AI Snake - DQN 12x12</title>
     <link rel="stylesheet" href="style.css">
     <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.15.1/dist/ort.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
 <body>
     <div class="container">
-        <h1>🐍 AI Snake - DQN с Value Loss</h1>
+        <h1>🐍 AI Snake - DQN с Buffer Replay</h1>
+        <p style="text-align:center;color:#666;margin-bottom:15px;">Поле 12×12 | Обучение с подкреплением</p>
 
         <div class="stats">
             <div class="stat-item">
@@ -62,7 +63,7 @@
         </div>
 
         <div class="info">
-            <p>🎯 DQN + Value Loss | Поле 12x12</p>
+            <p>🎯 DQN + Buffer Replay | Награда: +200 за еду, -100 за смерть</p>
             <div class="progress-bar">
                 <div id="progressFill" class="progress-fill"></div>
             </div>

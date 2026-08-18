@@ -8,79 +8,93 @@ from collections import deque
 import os
 
 # ========== НАСТРОЙКИ ==========
-GRID_SIZE = 12  # УМЕНЬШИЛИ ПОЛЕ!
-MAX_MEMORY = 100_000
-BATCH_SIZE = 1024
-LR = 0.001
-GAMMA = 0.95
-EPSILON = 1.0
-EPSILON_DECAY = 0.995
-MIN_EPSILON = 0.01
-TARGET_UPDATE = 10
+GRID_SIZE = 12
+MAX_MEMORY = 200_000
+BATCH_SIZE = 2048
+LR = 0.0005
+GAMMA = 0.99
+TAU = 0.001  # Soft update
+EPSILON_START = 1.0
+EPSILON_END = 0.01
+EPSILON_DECAY = 0.9995
+UPDATE_EVERY = 10
 
 
-# ========== МОДЕЛЬ С VALUE HEAD ==========
-class SnakeAI(nn.Module):
-    def __init__(self, input_size=24, hidden_size=256, output_size=4):
+# ========== УЛУЧШЕННАЯ МОДЕЛЬ ==========
+class DQN(nn.Module):
+    def __init__(self, input_size=24, hidden_size=512, output_size=4):
         super().__init__()
-        # Общая часть (shared layers)
-        self.fc1 = nn.Linear(input_size, hidden_size)
-        self.bn1 = nn.BatchNorm1d(hidden_size)
-        self.fc2 = nn.Linear(hidden_size, hidden_size // 2)
-        self.bn2 = nn.BatchNorm1d(hidden_size // 2)
-        self.fc3 = nn.Linear(hidden_size // 2, hidden_size // 4)
+        self.network = nn.Sequential(
+            nn.Linear(input_size, hidden_size),
+            nn.LayerNorm(hidden_size),
+            nn.ReLU(),
+            nn.Dropout(0.1),
 
-        # Advantage head (для действий)
-        self.advantage = nn.Linear(hidden_size // 4, output_size)
+            nn.Linear(hidden_size, hidden_size // 2),
+            nn.LayerNorm(hidden_size // 2),
+            nn.ReLU(),
+            nn.Dropout(0.1),
 
-        # Value head (для оценки состояния) - КРИТИК!
-        self.value = nn.Linear(hidden_size // 4, 1)
-
-        self.relu = nn.ReLU()
-        self.dropout = nn.Dropout(0.1)
+            nn.Linear(hidden_size // 2, hidden_size // 4),
+            nn.ReLU(),
+            nn.Linear(hidden_size // 4, output_size)
+        )
 
     def forward(self, x):
-        x = self.relu(self.bn1(self.fc1(x)))
-        x = self.dropout(x)
-        x = self.relu(self.bn2(self.fc2(x)))
-        x = self.dropout(x)
-        x = self.relu(self.fc3(x))
-
-        advantage = self.advantage(x)
-        value = self.value(x)
-
-        # Q(s,a) = V(s) + (A(s,a) - mean(A(s,a)))
-        q_values = value + advantage - advantage.mean(dim=1, keepdim=True)
-        return q_values, value  # Возвращаем и Q-values, и Value
+        return self.network(x)
 
 
-# ========== УЛУЧШЕННАЯ ИГРА ==========
+# ========== БУФЕР РЕПЛЕЙ ==========
+class ReplayBuffer:
+    def __init__(self, capacity):
+        self.buffer = deque(maxlen=capacity)
+        self.capacity = capacity
+
+    def push(self, state, action, reward, next_state, done):
+        self.buffer.append((state, action, reward, next_state, done))
+
+    def sample(self, batch_size):
+        batch = random.sample(self.buffer, batch_size)
+        states, actions, rewards, next_states, dones = zip(*batch)
+
+        return (
+            np.array(states, dtype=np.float32),
+            np.array(actions, dtype=np.int64),
+            np.array(rewards, dtype=np.float32),
+            np.array(next_states, dtype=np.float32),
+            np.array(dones, dtype=np.float32)
+        )
+
+    def __len__(self):
+        return len(self.buffer)
+
+
+# ========== ИГРА ==========
 class SnakeGame:
     def __init__(self):
+        self.grid_size = GRID_SIZE
         self.reset()
 
     def reset(self):
-        center = GRID_SIZE // 2
+        center = self.grid_size // 2
         self.snake = [(center, center), (center - 1, center), (center - 2, center)]
         self.direction = (1, 0)
         self.food = self._spawn_food()
         self.score = 0
         self.steps = 0
         self.game_over = False
-        self.consecutive_food = 0
+        self.total_reward = 0
         self.last_distance = self._get_distance_to_food()
         return self._get_state()
 
     def _spawn_food(self):
         head = self.snake[0]
-        attempts = 0
-        while attempts < 50:
-            food = (random.randint(0, GRID_SIZE - 1), random.randint(0, GRID_SIZE - 1))
+        for _ in range(100):
+            food = (random.randint(0, self.grid_size - 1), random.randint(0, self.grid_size - 1))
             if food not in self.snake:
                 dist = abs(food[0] - head[0]) + abs(food[1] - head[1])
                 if dist > 2:
                     return food
-            attempts += 1
         return food
 
     def _get_distance_to_food(self):
@@ -91,6 +105,7 @@ class SnakeGame:
         head = self.snake[0]
         state = []
 
+        # 8 направлений
         directions = [(0, -1), (0, 1), (-1, 0), (1, 0),
                       (-1, -1), (1, -1), (-1, 1), (1, 1)]
 
@@ -98,13 +113,13 @@ class SnakeGame:
             x, y = head[0] + dx, head[1] + dy
 
             # Стена
-            state.append(1 if x < 0 or x >= GRID_SIZE or y < 0 or y >= GRID_SIZE else 0)
+            state.append(1.0 if x < 0 or x >= self.grid_size or y < 0 or y >= self.grid_size else 0.0)
 
             # Еда
-            state.append(1 if (x, y) == self.food else 0)
+            state.append(1.0 if (x, y) == self.food else 0.0)
 
             # Хвост
-            state.append(1 if (x, y) in self.snake else 0)
+            state.append(1.0 if (x, y) in self.snake else 0.0)
 
         return np.array(state, dtype=np.float32)
 
@@ -112,6 +127,7 @@ class SnakeGame:
         actions = [(0, -1), (0, 1), (-1, 0), (1, 0)]
         new_direction = actions[action]
 
+        # Запрещаем разворот
         if not (self.direction[0] == -new_direction[0] and
                 self.direction[1] == -new_direction[1]):
             self.direction = new_direction
@@ -122,29 +138,25 @@ class SnakeGame:
         reward = 0
 
         # Проверка столкновения
-        if (new_head[0] < 0 or new_head[0] >= GRID_SIZE or
-                new_head[1] < 0 or new_head[1] >= GRID_SIZE or
+        if (new_head[0] < 0 or new_head[0] >= self.grid_size or
+                new_head[1] < 0 or new_head[1] >= self.grid_size or
                 new_head in self.snake):
             self.game_over = True
-            reward = -50
+            reward = -100
+            self.total_reward += reward
             return self._get_state(), reward, self.game_over
 
         self.snake.insert(0, new_head)
         self.steps += 1
 
-        # Награда за еду
+        # Проверка еды
         if new_head == self.food:
             self.score += 1
-            reward = 100
+            reward = 200
             self.food = self._spawn_food()
             self.steps = 0
-            self.consecutive_food += 1
-
-            if self.consecutive_food > 3:
-                reward += 20
         else:
             self.snake.pop()
-            self.consecutive_food = 0
 
             # Награда за приближение к еде
             old_dist = self.last_distance
@@ -152,208 +164,229 @@ class SnakeGame:
             self.last_distance = new_dist
 
             if new_dist < old_dist:
-                reward += 10  # Увеличил награду за приближение
-            else:
-                reward -= 5
+                reward += 15
+            elif new_dist > old_dist:
+                reward -= 8
 
-            # Штраф за блуждания (меньше на маленьком поле)
+            # Штраф за долгие блуждания
             if self.steps > 50 and self.score == 0:
-                reward -= 3
+                reward -= 2
 
             # Бонус за выживание
-            if self.steps > 0 and self.steps % 30 == 0:
-                reward += 5
+            if self.steps > 0 and self.steps % 20 == 0:
+                reward += 3
+
+        self.total_reward += reward
+
+        # Максимальное количество шагов
+        if self.steps > 200:
+            self.game_over = True
 
         return self._get_state(), reward, self.game_over
 
 
-# ========== УЛУЧШЕННЫЙ АГЕНТ ==========
+# ========== УЛУЧШЕННЫЙ DQN АГЕНТ ==========
 class DQNAgent:
-    def __init__(self, input_size=24, hidden_size=256, output_size=4):
-        self.model = SnakeAI(input_size, hidden_size, output_size)
-        self.target_model = SnakeAI(input_size, hidden_size, output_size)
+    def __init__(self, state_size=24, action_size=4):
+        self.state_size = state_size
+        self.action_size = action_size
+
+        # Основная и целевая сети
+        self.model = DQN(state_size, 512, action_size)
+        self.target_model = DQN(state_size, 512, action_size)
         self.target_model.load_state_dict(self.model.state_dict())
 
         self.optimizer = optim.Adam(self.model.parameters(), lr=LR)
-        self.criterion = nn.MSELoss()
-        self.memory = deque(maxlen=MAX_MEMORY)
-        self.epsilon = EPSILON
-        self.gamma = GAMMA
+        self.criterion = nn.SmoothL1Loss()  # Huber Loss
+
+        # Буфер реплей
+        self.memory = ReplayBuffer(MAX_MEMORY)
+
+        # Параметры обучения
+        self.epsilon = EPSILON_START
+        self.epsilon_end = EPSILON_END
+        self.epsilon_decay = EPSILON_DECAY
+
         self.update_counter = 0
 
-    def remember(self, state, action, reward, next_state, done):
-        self.memory.append((state, action, reward, next_state, done))
-
-    def act(self, state):
-        if random.random() < self.epsilon:
-            return random.randint(0, 3)
+    def act(self, state, training=True):
+        if training and random.random() < self.epsilon:
+            return random.randint(0, self.action_size - 1)
 
         with torch.no_grad():
             state_tensor = torch.FloatTensor(state).unsqueeze(0)
-            q_values, _ = self.model(state_tensor)
+            q_values = self.model(state_tensor)
             return q_values.argmax().item()
+
+    def remember(self, state, action, reward, next_state, done):
+        self.memory.push(state, action, reward, next_state, done)
 
     def replay(self):
         if len(self.memory) < BATCH_SIZE:
-            return
+            return None
 
-        batch = random.sample(self.memory, BATCH_SIZE)
-        states, actions, rewards, next_states, dones = zip(*batch)
+        # Сэмплируем из буфера
+        states, actions, rewards, next_states, dones = self.memory.sample(BATCH_SIZE)
 
-        states = torch.FloatTensor(np.array(states))
-        actions = torch.LongTensor(np.array(actions))
-        rewards = torch.FloatTensor(np.array(rewards))
-        next_states = torch.FloatTensor(np.array(next_states))
-        dones = torch.FloatTensor(np.array(dones))
+        # Конвертируем в тензоры
+        states = torch.FloatTensor(states)
+        actions = torch.LongTensor(actions)
+        rewards = torch.FloatTensor(rewards)
+        next_states = torch.FloatTensor(next_states)
+        dones = torch.FloatTensor(dones)
 
-        # Получаем Q-values и Value
-        current_q, current_v = self.model(states)
+        # Текущие Q-значения
+        current_q = self.model(states).gather(1, actions.unsqueeze(1)).squeeze()
 
+        # Целевые Q-значения (Double DQN)
         with torch.no_grad():
-            # Double DQN для Q-values
-            next_q, _ = self.model(next_states)
-            next_actions = next_q.argmax(1, keepdim=True)
+            # Выбираем действия через основную сеть
+            next_actions = self.model(next_states).argmax(1, keepdim=True)
+            # Оцениваем через целевую сеть
+            next_q = self.target_model(next_states).gather(1, next_actions).squeeze()
+            target_q = rewards + (1 - dones) * GAMMA * next_q
 
-            target_q, _ = self.target_model(next_states)
-            target_q_values = target_q.gather(1, next_actions).squeeze()
-
-            # Вычисляем target для Value (критика)
-            # V_target = reward + gamma * V_next
-            _, next_v = self.target_model(next_states)
-            target_v = rewards + (1 - dones) * self.gamma * next_v.squeeze()
-
-        # ====== TWO LOSSES ======
-        # 1. Q-Loss (для actor)
-        current_q_values = current_q.gather(1, actions.unsqueeze(1)).squeeze()
-        q_loss = self.criterion(current_q_values, target_q_values)
-
-        # 2. Value Loss (для critic)
-        current_v_values = current_v.squeeze()
-        v_loss = self.criterion(current_v_values, target_v)
-
-        # 3. Combined Loss
-        total_loss = q_loss + 0.5 * v_loss  # Можно регулировать вес
+        # Вычисляем loss
+        loss = self.criterion(current_q, target_q)
 
         # Оптимизация
         self.optimizer.zero_grad()
-        total_loss.backward()
+        loss.backward()
         torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
         self.optimizer.step()
 
-        # Уменьшаем epsilon
-        self.epsilon = max(MIN_EPSILON, self.epsilon * EPSILON_DECAY)
+        # Обновляем epsilon
+        self.epsilon = max(self.epsilon_end, self.epsilon * self.epsilon_decay)
 
-        return {
-            'q_loss': q_loss.item(),
-            'v_loss': v_loss.item(),
-            'total_loss': total_loss.item()
-        }
+        return loss.item()
 
-    def update_target_model(self):
-        self.target_model.load_state_dict(self.model.state_dict())
+    def update_target(self):
+        # Soft update
+        for target_param, param in zip(self.target_model.parameters(), self.model.parameters()):
+            target_param.data.copy_(TAU * param.data + (1 - TAU) * target_param.data)
+
+    def save(self, path):
+        torch.save({
+            'model_state_dict': self.model.state_dict(),
+            'target_state_dict': self.target_model.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'epsilon': self.epsilon
+        }, path)
 
 
 # ========== ОБУЧЕНИЕ ==========
-def train(episodes=1000):
+def train(episodes=300):
     agent = DQNAgent()
     game = SnakeGame()
+
     best_score = 0
     scores = []
     losses = []
-    recent_scores = deque(maxlen=50)
+    epsilons = []
+    rewards_history = []
 
-    print("🚀 Начинаем обучение на поле 12x12!")
-    print(f"📊 Размер памяти: {MAX_MEMORY}")
+    print("🚀 Начинаем обучение с улучшенным DQN!")
+    print(f"📊 Размер буфера: {MAX_MEMORY}")
     print(f"📊 Размер батча: {BATCH_SIZE}")
-    print(f"🎯 Награда за еду: 100, Штраф за смерть: -50")
+    print(f"🎯 Награда за еду: 200, Штраф за смерть: -100")
+    print("=" * 60)
 
     for episode in range(episodes):
         state = game.reset()
-        total_reward = 0
-        episode_losses = []
+        episode_loss = 0
+        episode_reward = 0
+        loss_count = 0
 
         while not game.game_over:
             action = agent.act(state)
             next_state, reward, done = game.step(action)
+
             agent.remember(state, action, reward, next_state, done)
 
-            # Обучение на батче
-            loss_info = agent.replay()
-            if loss_info:
-                episode_losses.append(loss_info)
+            loss = agent.replay()
+            if loss is not None:
+                episode_loss += loss
+                loss_count += 1
 
             state = next_state
-            total_reward += reward
+            episode_reward += reward
 
-            # Ранний выход
-            if game.steps > 300:
-                game.game_over = True
-                break
-
-        # Обновляем target модель
+        # Обновляем целевую сеть
         agent.update_counter += 1
-        if agent.update_counter % TARGET_UPDATE == 0:
-            agent.update_target_model()
+        if agent.update_counter % UPDATE_EVERY == 0:
+            agent.update_target()
+
+        # Сохраняем статистику
+        scores.append(game.score)
+        epsilons.append(agent.epsilon)
+        rewards_history.append(episode_reward)
+
+        if loss_count > 0:
+            losses.append(episode_loss / loss_count)
+        else:
+            losses.append(0)
 
         # Сохраняем лучшую модель
         if game.score > best_score:
             best_score = game.score
-            torch.save(agent.model.state_dict(), 'best_model.pt')
+            agent.save('best_model.pt')
             print(f"🏆 НОВЫЙ РЕКОРД: {best_score} (эпизод {episode})")
 
-        recent_scores.append(game.score)
-        scores.append(game.score)
-
-        # Сохраняем потери
-        if episode_losses:
-            avg_losses = {
-                'q_loss': np.mean([l['q_loss'] for l in episode_losses]),
-                'v_loss': np.mean([l['v_loss'] for l in episode_losses]),
-                'total_loss': np.mean([l['total_loss'] for l in episode_losses])
-            }
-            losses.append(avg_losses)
-
-        # Статистика каждые 10 эпизодов
+        # Вывод статистики
         if episode % 10 == 0:
-            avg_score = np.mean(recent_scores) if recent_scores else 0
-            max_recent = max(recent_scores) if recent_scores else 0
-            avg_q_loss = np.mean([l['q_loss'] for l in losses[-10:]]) if losses else 0
-            avg_v_loss = np.mean([l['v_loss'] for l in losses[-10:]]) if losses else 0
+            avg_score = np.mean(scores[-10:]) if scores else 0
+            avg_loss = np.mean(losses[-10:]) if losses else 0
+            avg_reward = np.mean(rewards_history[-10:]) if rewards_history else 0
 
-            print(f"📊 Эпизод {episode:4d} | Счет: {game.score:3d} | "
-                  f"Ср: {avg_score:5.1f} | Луч: {max_recent:3d} | "
-                  f"Eps: {agent.epsilon:.3f} | "
-                  f"Q-Loss: {avg_q_loss:6.3f} | V-Loss: {avg_v_loss:6.3f}")
+            print(f"📊 Эпизод {episode:4d} | "
+                  f"Счет: {game.score:3d} | "
+                  f"Ср. счет: {avg_score:5.1f} | "
+                  f"Лучший: {best_score:3d} | "
+                  f"Eps: {agent.epsilon:.4f} | "
+                  f"Loss: {avg_loss:6.4f} | "
+                  f"Reward: {avg_reward:7.1f}")
 
-    print(f"\n✅ Обучение завершено!")
+    print("=" * 60)
+    print(f"✅ Обучение завершено!")
     print(f"🏆 Лучший счет: {best_score}")
-    print(f"📊 Средний за последние 50: {np.mean(recent_scores):.1f}")
+    print(f"📊 Средний за 50 игр: {np.mean(scores[-50:]):.1f}")
 
-    return agent
+    return agent, scores, losses, epsilons, rewards_history
 
 
-# ========== СОХРАНЕНИЕ ==========
-def save_model_for_web(agent):
-    if os.path.exists('best_model.pt'):
-        model = SnakeAI(24, 256, 4)
-        model.load_state_dict(torch.load('best_model.pt'))
-    else:
-        model = agent.model
-
-    torch.save(model.state_dict(), 'model.pt')
+# ========== СОХРАНЕНИЕ ДЛЯ ВЕБА ==========
+def save_for_web(agent, scores, losses, epsilons, rewards):
+    # Сохраняем модель
+    torch.save(agent.model.state_dict(), 'model.pt')
     print("✅ model.pt сохранен")
 
+    # Сохраняем конфиг
     config = {
         "input_size": 24,
-        "hidden_size": 256,
+        "hidden_size": 512,
         "output_size": 4,
-        "grid_size": 12
+        "grid_size": GRID_SIZE
     }
     with open('model_config.json', 'w') as f:
         json.dump(config, f, indent=2)
     print("✅ model_config.json сохранен")
 
+    # Сохраняем историю обучения
+    history = {
+        "scores": scores,
+        "losses": losses,
+        "epsilons": epsilons,
+        "rewards": rewards
+    }
+    with open('training_history.json', 'w') as f:
+        json.dump(history, f)
+    print("✅ training_history.json сохранен")
+
+    # Конвертируем в ONNX
+    model = DQN(24, 512, 4)
+    model.load_state_dict(torch.load('model.pt'))
     model.eval()
+
     dummy_input = torch.randn(1, 24)
     torch.onnx.export(
         model,
@@ -373,6 +406,6 @@ def save_model_for_web(agent):
 
 
 if __name__ == "__main__":
-    agent = train(episodes=300)  # Меньше эпизодов из-за маленького поля
-    save_model_for_web(agent)
+    agent, scores, losses, epsilons, rewards = train(episodes=300)
+    save_for_web(agent, scores, losses, epsilons, rewards)
     print("\n🎉 Все готово для деплоя!")
