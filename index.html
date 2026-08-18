@@ -3,15 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Snake - DQN 12x12</title>
+    <title>AI Snake - Rainbow DQN 10x10</title>
     <link rel="stylesheet" href="style.css">
     <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.15.1/dist/ort.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
 <body>
     <div class="container">
-        <h1>🐍 AI Snake - DQN с Buffer Replay</h1>
-        <p style="text-align:center;color:#666;margin-bottom:15px;">Поле 12×12 | Обучение с подкреплением</p>
+        <h1>🐍 AI Snake - Rainbow DQN</h1>
+        <p style="text-align:center;color:#666;margin-bottom:15px;">Поле 10×10 | Обучение с подкреплением</p>
 
         <div class="stats">
             <div class="stat-item">
@@ -31,8 +31,8 @@
                 <span id="steps">0</span>
             </div>
             <div class="stat-item">
-                <span>Epsilon</span>
-                <span id="epsilon">1.00</span>
+                <span>Loss</span>
+                <span id="loss-display">0.00</span>
             </div>
             <div class="stat-item">
                 <span>Ср. счет</span>
@@ -42,16 +42,16 @@
 
         <div class="game-area">
             <div class="game-left">
-                <canvas id="gameCanvas" width="360" height="360"></canvas>
+                <canvas id="gameCanvas" width="300" height="300"></canvas>
 
                 <div class="controls">
                     <button id="startBtn" onclick="startTraining()">▶ Начать</button>
                     <button id="pauseBtn" onclick="togglePause()">⏸ Пауза</button>
                     <button id="resetBtn" onclick="resetGame()">🔄 Сброс</button>
                     <div class="speed-controls">
-                        <button id="speedDownBtn" onclick="changeSpeed(-50)">➖</button>
+                        <button id="speedDownBtn" onclick="changeSpeed(-10)">➖</button>
                         <span id="speedDisplay">100ms</span>
-                        <button id="speedUpBtn" onclick="changeSpeed(50)">➕</button>
+                        <button id="speedUpBtn" onclick="changeSpeed(10)">➕</button>
                     </div>
                 </div>
             </div>
@@ -70,7 +70,7 @@
         </div>
 
         <div class="info">
-            <p>🎯 DQN + Buffer Replay | Награда: +200 за еду, -100 за смерть</p>
+            <p>🌈 Rainbow DQN | Награда: +200 за еду, -50 за смерть</p>
             <div class="progress-bar">
                 <div id="progressFill" class="progress-fill"></div>
             </div>

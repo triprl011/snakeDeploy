@@ -9,29 +9,28 @@ import os
 import math
 
 # ========== НАСТРОЙКИ ==========
-GRID_SIZE = 10  # ← УМЕНЬШИЛИ ДО 10!
+GRID_SIZE = 10
 STATE_SIZE = 24
 ACTION_SIZE = 4
 
-# Параметры Rainbow (оптимизированные)
-BUFFER_SIZE = 100_000  # Меньше для быстрого обучения
-BATCH_SIZE = 256  # Оптимальный размер
-LR = 0.0005  # Чуть выше для скорости
+# Параметры Rainbow
+BUFFER_SIZE = 100_000
+BATCH_SIZE = 256
+LR = 0.0005
 GAMMA = 0.99
-TAU = 0.01  # Быстрее обновление
-MULTI_STEP = 2  # Меньше для простоты
+TAU = 0.01
+MULTI_STEP = 2
 ATOMS = 51
 V_MIN = -100
 V_MAX = 300
 
 # Обучение
-EPISODES = 300  # Меньше эпизодов
+EPISODES = 300
 UPDATE_EVERY = 2
 TARGET_UPDATE = 50
 MIN_REPLAY_SIZE = 500
 ALPHA = 0.6
 BETA = 0.4
-BETA_INCREMENT = 0.001
 
 
 # ========== NOISY LAYER ==========
@@ -74,7 +73,7 @@ class NoisyLinear(nn.Module):
         return torch.nn.functional.linear(x, weight, bias)
 
 
-# ========== DUELING NETWORK (упрощенная) ==========
+# ========== DUELING NETWORK ==========
 class RainbowDQN(nn.Module):
     def __init__(self, state_size, action_size, atoms, v_min, v_max):
         super().__init__()
@@ -83,14 +82,10 @@ class RainbowDQN(nn.Module):
         self.v_min = v_min
         self.v_max = v_max
 
-        # Упрощенная сеть
         self.fc1 = NoisyLinear(state_size, 256)
         self.fc2 = NoisyLinear(256, 128)
 
-        # Value stream
         self.value = NoisyLinear(128, atoms)
-
-        # Advantage stream
         self.advantage = NoisyLinear(128, action_size * atoms)
 
     def forward(self, x):
@@ -172,7 +167,7 @@ class PrioritizedReplayBuffer:
         return self.size
 
 
-# ========== ИГРА (поле 10x10) ==========
+# ========== ИГРА ==========
 class SnakeGame:
     def __init__(self):
         self.grid_size = GRID_SIZE
@@ -244,7 +239,7 @@ class SnakeGame:
 
         if new_head == self.food:
             self.score += 1
-            reward = 200  # Увеличил награду!
+            reward = 200
             self.food = self._spawn_food()
             self.steps = 0
         else:
