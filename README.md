@@ -1,3 +1,5 @@
+#python -m ensurepip --upgrade
+
 # 🐍 AI Snake - Обучение с подкреплением
 
 Змейка, которая учится играть с помощью Deep Q-Learning (PyTorch).
