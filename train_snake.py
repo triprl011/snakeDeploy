@@ -72,7 +72,7 @@ class NoisyLinear(nn.Module):
         return torch.nn.functional.linear(x, weight, bias)
 
 
-# ========== DUELING NETWORK ==========
+# ========== RAINBOW DQN ==========
 class RainbowDQN(nn.Module):
     def __init__(self, state_size, action_size, atoms, v_min, v_max):
         super().__init__()
@@ -104,6 +104,47 @@ class RainbowDQN(nn.Module):
         dist = self.forward(x)
         support = torch.linspace(self.v_min, self.v_max, self.atoms).to(x.device)
         q_values = (dist * support).sum(dim=2)
+        return q_values
+
+
+# ========== WRAPPER ДЛЯ ONNX ==========
+class ONNXWrapper(nn.Module):
+    """Обертка для экспорта в ONNX - только Q-values"""
+
+    def __init__(self, model):
+        super().__init__()
+        # Копируем архитектуру без Noisy слоев
+        self.fc1 = nn.Linear(model.fc1.in_features, model.fc1.out_features)
+        self.fc2 = nn.Linear(model.fc2.in_features, model.fc2.out_features)
+        self.value = nn.Linear(model.value.in_features, model.value.out_features)
+        self.advantage = nn.Linear(model.advantage.in_features, model.advantage.out_features)
+
+        # Копируем веса (му)
+        self.fc1.weight.data = model.fc1.weight_mu.data.clone()
+        self.fc1.bias.data = model.fc1.bias_mu.data.clone()
+        self.fc2.weight.data = model.fc2.weight_mu.data.clone()
+        self.fc2.bias.data = model.fc2.bias_mu.data.clone()
+        self.value.weight.data = model.value.weight_mu.data.clone()
+        self.value.bias.data = model.value.bias_mu.data.clone()
+        self.advantage.weight.data = model.advantage.weight_mu.data.clone()
+        self.advantage.bias.data = model.advantage.bias_mu.data.clone()
+
+        self.action_size = model.action_size
+        self.atoms = model.atoms
+        self.v_min = model.v_min
+        self.v_max = model.v_max
+
+    def forward(self, x):
+        x = torch.relu(self.fc1(x))
+        x = torch.relu(self.fc2(x))
+        v = self.value(x).view(-1, 1, self.atoms)
+        a = self.advantage(x).view(-1, self.action_size, self.atoms)
+        q = v + a - a.mean(dim=1, keepdim=True)
+        q = torch.softmax(q, dim=2)
+
+        # Вычисляем Q-values
+        support = torch.linspace(self.v_min, self.v_max, self.atoms).to(x.device)
+        q_values = (q * support).sum(dim=2)
         return q_values
 
 
@@ -363,33 +404,64 @@ def train():
 
 # ========== СОХРАНЕНИЕ ==========
 def save_for_web(agent, scores, losses, rewards):
+    # Сохраняем PyTorch модель
     torch.save(agent.model.state_dict(), 'model.pt')
     print("✅ model.pt сохранен")
-    config = {"input_size": STATE_SIZE, "output_size": ACTION_SIZE, "grid_size": GRID_SIZE}
+
+    # Сохраняем конфиг
+    config = {
+        "input_size": STATE_SIZE,
+        "output_size": ACTION_SIZE,
+        "grid_size": GRID_SIZE,
+        "rainbow": True
+    }
     with open('model_config.json', 'w') as f:
         json.dump(config, f, indent=2)
     print("✅ model_config.json сохранен")
-    history = {"scores": scores, "losses": losses, "rewards": rewards, "epsilons": [0.0] * len(scores)}
+
+    # Сохраняем историю
+    history = {
+        "scores": scores,
+        "losses": losses,
+        "rewards": rewards,
+        "epsilons": [0.0] * len(scores)
+    }
     with open('training_history.json', 'w') as f:
         json.dump(history, f, indent=2)
     print(f"✅ training_history.json сохранен ({len(scores)} записей)")
 
-    class Wrapper(nn.Module):
-        def forward(self, x):
-            return agent.model.get_q_values(x)
-
-    wrapper = Wrapper()
-    wrapper.load_state_dict(agent.model.state_dict())
+    # Конвертируем в ONNX через Wrapper
+    print("🔄 Конвертация в ONNX...")
+    wrapper = ONNXWrapper(agent.model)
     wrapper.eval()
+
     dummy_input = torch.randn(1, STATE_SIZE)
-    torch.onnx.export(wrapper, dummy_input, "model.onnx", export_params=True,
-                      opset_version=11, do_constant_folding=True,
-                      input_names=['input'], output_names=['output'],
-                      dynamic_axes={'input': {0: 'batch_size'}, 'output': {0: 'batch_size'}})
+    torch.onnx.export(
+        wrapper,
+        dummy_input,
+        "model.onnx",
+        export_params=True,
+        opset_version=11,
+        do_constant_folding=True,
+        input_names=['input'],
+        output_names=['output'],
+        dynamic_axes={
+            'input': {0: 'batch_size'},
+            'output': {0: 'batch_size'}
+        }
+    )
     print("✅ model.onnx сохранен")
+
+    # Проверяем размер файла
+    size = os.path.getsize('model.onnx') / 1024
+    print(f"📦 Размер model.onnx: {size:.2f} KB")
 
 
 if __name__ == "__main__":
     agent, scores, losses, rewards = train()
     save_for_web(agent, scores, losses, rewards)
     print("\n🎉 Все готово для деплоя!")
+    print("📁 Файлы для веба:")
+    print("  - model.onnx")
+    print("  - model_config.json")
+    print("  - training_history.json")

@@ -1,1 +1,6 @@
-{"input_size": 24, "hidden_size": 256, "output_size": 4}
+{
+  "input_size": 24,
+  "output_size": 4,
+  "grid_size": 10,
+  "rainbow": true
+}
