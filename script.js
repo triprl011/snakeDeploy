@@ -16,35 +16,255 @@ let generation = 0;
 let isTraining = false;
 let isPaused = false;
 let speed = 100;
-let maxSteps = 1000;
+let maxSteps = 500;
 let gameOver = false;
+let totalReward = 0;
+let epsilon = 1.0;
+
+// ========== ДАННЫЕ ДЛЯ ГРАФИКОВ ==========
+const history = {
+    scores: [],
+    rewards: [],
+    generations: [],
+    avgScores: [],
+    bestScores: []
+};
+
+// ========== ИНИЦИАЛИЗАЦИЯ ГРАФИКОВ ==========
+let scoreChart, rewardChart;
+
+function initCharts() {
+    // График счетов
+    const ctx1 = document.getElementById('scoreChart').getContext('2d');
+    scoreChart = new Chart(ctx1, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [
+                {
+                    label: 'Счет за игру',
+                    data: [],
+                    borderColor: '#667eea',
+                    backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                    borderWidth: 2,
+                    pointRadius: 2,
+                    tension: 0.3
+                },
+                {
+                    label: 'Средний (10 игр)',
+                    data: [],
+                    borderColor: '#f39c12',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0.3,
+                    borderDash: [5, 5]
+                },
+                {
+                    label: 'Лучший счет',
+                    data: [],
+                    borderColor: '#2ecc71',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0.3
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    labels: {
+                        font: { size: 10 },
+                        boxWidth: 12
+                    }
+                },
+                title: {
+                    display: true,
+                    text: '📊 Прогресс обучения',
+                    font: { size: 12 }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    title: {
+                        display: true,
+                        text: 'Счет'
+                    }
+                },
+                x: {
+                    title: {
+                        display: true,
+                        text: 'Поколение'
+                    },
+                    ticks: {
+                        maxTicksLimit: 50
+                    }
+                }
+            }
+        }
+    });
+
+    // График наград
+    const ctx2 = document.getElementById('rewardChart').getContext('2d');
+    rewardChart = new Chart(ctx2, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [
+                {
+                    label: 'Общая награда',
+                    data: [],
+                    borderColor: '#e74c3c',
+                    backgroundColor: 'rgba(231, 76, 60, 0.1)',
+                    borderWidth: 2,
+                    pointRadius: 1,
+                    tension: 0.3,
+                    fill: true
+                },
+                {
+                    label: 'Epsilon (исследование)',
+                    data: [],
+                    borderColor: '#9b59b6',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0.3,
+                    borderDash: [5, 5],
+                    yAxisID: 'y1'
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    labels: {
+                        font: { size: 10 },
+                        boxWidth: 12
+                    }
+                },
+                title: {
+                    display: true,
+                    text: '🎯 Награды и исследование',
+                    font: { size: 12 }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    position: 'left',
+                    title: {
+                        display: true,
+                        text: 'Награда'
+                    }
+                },
+                y1: {
+                    beginAtZero: true,
+                    position: 'right',
+                    max: 1,
+                    title: {
+                        display: true,
+                        text: 'Epsilon'
+                    },
+                    grid: {
+                        drawOnChartArea: false
+                    }
+                },
+                x: {
+                    title: {
+                        display: true,
+                        text: 'Поколение'
+                    },
+                    ticks: {
+                        maxTicksLimit: 50
+                    }
+                }
+            }
+        }
+    });
+}
+
+// ========== ОБНОВЛЕНИЕ ГРАФИКОВ ==========
+function updateCharts() {
+    const labels = history.generations;
+
+    // Обновляем график счетов
+    scoreChart.data.labels = labels;
+    scoreChart.data.datasets[0].data = history.scores;
+    scoreChart.data.datasets[1].data = history.avgScores;
+    scoreChart.data.datasets[2].data = history.bestScores;
+    scoreChart.update('none');
+
+    // Обновляем график наград
+    rewardChart.data.labels = labels;
+    rewardChart.data.datasets[0].data = history.rewards;
+    rewardChart.data.datasets[1].data = history.epsilonHistory || [];
+    rewardChart.update('none');
+}
+
+// ========== ДОБАВЛЕНИЕ ДАННЫХ ==========
+function addTrainingData(score, reward, eps) {
+    generation++;
+
+    // Добавляем данные
+    history.generations.push(generation);
+    history.scores.push(score);
+    history.rewards.push(reward);
+    history.epsilonHistory = history.epsilonHistory || [];
+    history.epsilonHistory.push(eps);
+
+    // Обновляем лучший счет
+    if (score > bestScore) {
+        bestScore = score;
+    }
+    history.bestScores.push(bestScore);
+
+    // Вычисляем средний за 10 игр
+    const last10 = history.scores.slice(-10);
+    const avg = last10.reduce((a, b) => a + b, 0) / last10.length;
+    history.avgScores.push(avg);
+
+    // Обновляем статистику
+    document.getElementById('best-score').textContent = bestScore;
+    document.getElementById('avg-score').textContent = avg.toFixed(1);
+    document.getElementById('epsilon').textContent = eps.toFixed(3);
+    document.getElementById('generation').textContent = generation;
+
+    // Обновляем графики
+    updateCharts();
+}
 
 // ========== МОДЕЛЬ AI ==========
 class SnakeAI {
     constructor() {
-        this.model = null;
-        this.config = null;
+        this.session = null;
         this.loaded = false;
+        this.useRandom = false;
+        this.epsilon = 1.0;
     }
 
     async loadModel() {
         try {
-            // Загружаем конфиг
-            const configResponse = await fetch('model_config.json');
-            this.config = await configResponse.json();
+            console.log('🔄 Загрузка модели...');
+            const response = await fetch('model.onnx');
+            if (!response.ok) throw new Error('model.onnx не найден');
 
-            // Загружаем модель ONNX
-            const modelResponse = await fetch('model.onnx');
-            const modelBuffer = await modelResponse.arrayBuffer();
-
-            // Создаем сессию ONNX Runtime
+            const modelBuffer = await response.arrayBuffer();
             this.session = await ort.InferenceSession.create(modelBuffer);
             this.loaded = true;
             console.log('✅ Модель загружена!');
+
+            const configResponse = await fetch('model_config.json');
+            if (configResponse.ok) {
+                this.config = await configResponse.json();
+            }
             return true;
         } catch (error) {
-            console.error('❌ Ошибка загрузки модели:', error);
-            // Используем случайную политику как fallback
+            console.warn('⚠️ Ошибка:', error);
+            this.loaded = false;
+            this.useRandom = true;
             return false;
         }
     }
@@ -52,8 +272,6 @@ class SnakeAI {
     getState(snake, food) {
         const head = snake[0];
         const state = [];
-
-        // 8 направлений: вверх, вниз, влево, вправо, и диагонали
         const directions = [
             [0, -1], [0, 1], [-1, 0], [1, 0],
             [-1, -1], [1, -1], [-1, 1], [1, 1]
@@ -63,13 +281,9 @@ class SnakeAI {
             const x = head.x + dx;
             const y = head.y + dy;
 
-            // Стена
             state.push(x < 0 || x >= GRID_SIZE || y < 0 || y >= GRID_SIZE ? 1 : 0);
-
-            // Еда
             state.push(x === food.x && y === food.y ? 1 : 0);
 
-            // Хвост (свое тело)
             let isTail = false;
             for (let segment of snake) {
                 if (segment.x === x && segment.y === y) {
@@ -79,27 +293,31 @@ class SnakeAI {
             }
             state.push(isTail ? 1 : 0);
         }
-
-        return state;
+        return new Float32Array(state);
     }
 
     async predict(state) {
-        if (!this.loaded) {
-            // Случайное действие как fallback
+        if (this.useRandom || !this.loaded || Math.random() < this.epsilon) {
             return Math.floor(Math.random() * 4);
         }
 
         try {
-            const input = new Float32Array(state);
-            const tensor = new ort.Tensor('float32', input, [1, state.length]);
-
-            const feeds = { 'input': tensor };
+            const inputTensor = new ort.Tensor('float32', state, [1, state.length]);
+            const feeds = { 'input': inputTensor };
             const results = await this.session.run(feeds);
-
             const output = results['output'].data;
-            return output.indexOf(Math.max(...output));
+
+            let bestAction = 0;
+            let bestValue = -Infinity;
+            for (let i = 0; i < output.length; i++) {
+                if (output[i] > bestValue) {
+                    bestValue = output[i];
+                    bestAction = i;
+                }
+            }
+            return bestAction;
         } catch (error) {
-            console.error('Ошибка предсказания:', error);
+            console.error('❌ Ошибка:', error);
             return Math.floor(Math.random() * 4);
         }
     }
@@ -109,27 +327,33 @@ const ai = new SnakeAI();
 
 // ========== ИНИЦИАЛИЗАЦИЯ ==========
 function initGame() {
+    const center = Math.floor(GRID_SIZE / 2);
     snake = [
-        { x: 10, y: 10 },
-        { x: 9, y: 10 },
-        { x: 8, y: 10 }
+        { x: center, y: center },
+        { x: center - 1, y: center },
+        { x: center - 2, y: center }
     ];
     direction = { dx: 1, dy: 0 };
     nextDirection = { dx: 1, dy: 0 };
     score = 0;
     steps = 0;
     gameOver = false;
+    totalReward = 0;
     spawnFood();
 }
 
 function spawnFood() {
     let pos;
+    let attempts = 0;
     do {
         pos = {
             x: Math.floor(Math.random() * GRID_SIZE),
             y: Math.floor(Math.random() * GRID_SIZE)
         };
-    } while (snake.some(s => s.x === pos.x && s.y === pos.y));
+        attempts++;
+    } while ((snake.some(s => s.x === pos.x && s.y === pos.y) ||
+              Math.abs(pos.x - snake[0].x) + Math.abs(pos.y - snake[0].y) < 3) &&
+              attempts < 100);
     food = pos;
 }
 
@@ -137,59 +361,85 @@ function spawnFood() {
 function update() {
     if (gameOver || isPaused) return;
 
-    // Обновляем направление
     direction = { ...nextDirection };
-
-    // Вычисляем новую голову
     const head = snake[0];
     const newHead = {
         x: head.x + direction.dx,
         y: head.y + direction.dy
     };
 
-    // Проверка столкновения со стеной
+    let reward = 0;
+
+    // Проверка столкновений
     if (newHead.x < 0 || newHead.x >= GRID_SIZE ||
-        newHead.y < 0 || newHead.y >= GRID_SIZE) {
+        newHead.y < 0 || newHead.y >= GRID_SIZE ||
+        snake.some(s => s.x === newHead.x && s.y === newHead.y)) {
         gameOver = true;
+        reward = -50;
+        totalReward += reward;
         updateBestScore();
+        onGameOver(reward);
         return;
     }
 
-    // Проверка столкновения с собой
-    if (snake.some(s => s.x === newHead.x && s.y === newHead.y)) {
-        gameOver = true;
-        updateBestScore();
-        return;
-    }
-
-    // Добавляем новую голову
     snake.unshift(newHead);
+    steps++;
 
     // Проверка еды
     if (newHead.x === food.x && newHead.y === food.y) {
         score++;
+        reward = 100;
         steps = 0;
         if (score > bestScore) bestScore = score;
         spawnFood();
     } else {
         snake.pop();
-        steps++;
+
+        // Награда за приближение к еде
+        const oldDist = Math.abs(head.x - food.x) + Math.abs(head.y - food.y);
+        const newDist = Math.abs(newHead.x - food.x) + Math.abs(newHead.y - food.y);
+        reward = newDist < oldDist ? 8 : -4;
+
+        // Штраф за долгие блуждания
+        if (steps > 100 && score === 0) reward -= 2;
+
+        // Бонус за выживание
+        if (steps > 0 && steps % 50 === 0) reward += 3;
     }
 
-    // Проверка на слишком долгую игру
+    totalReward += reward;
+
     if (steps > maxSteps) {
         gameOver = true;
+        onGameOver(reward);
     }
 
     draw();
     updateStats();
 }
 
+function onGameOver(reward) {
+    // Добавляем данные в графики
+    addTrainingData(score, totalReward, ai.epsilon || 1.0);
+
+    // Обновляем epsilon (уменьшаем со временем)
+    if (ai.epsilon > 0.01) {
+        ai.epsilon = Math.max(0.01, ai.epsilon * 0.997);
+    }
+}
+
+function updateBestScore() {
+    if (score > bestScore) {
+        bestScore = score;
+        document.getElementById('best-score').textContent = bestScore;
+    }
+}
+
 // ========== ОТРИСОВКА ==========
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Сетка (полупрозрачная)
+    // Сетка
     ctx.strokeStyle = 'rgba(255,255,255,0.05)';
     for (let i = 0; i <= GRID_SIZE; i++) {
         ctx.beginPath();
@@ -221,8 +471,9 @@ function draw() {
             gradient.addColorStop(0, '#4ecdc4');
             gradient.addColorStop(1, '#44b39d');
         } else {
-            gradient.addColorStop(0, '#45b7d1');
-            gradient.addColorStop(1, '#3498db');
+            const intensity = 0.5 + (index / snake.length) * 0.5;
+            gradient.addColorStop(0, `rgba(69, 183, 209, ${intensity})`);
+            gradient.addColorStop(1, `rgba(52, 152, 219, ${intensity})`);
         }
         ctx.fillStyle = gradient;
         ctx.shadowBlur = 5;
@@ -230,43 +481,14 @@ function draw() {
         ctx.fillRect(segment.x * CELL_SIZE + 1, segment.y * CELL_SIZE + 1, CELL_SIZE - 2, CELL_SIZE - 2);
         ctx.shadowBlur = 0;
     });
-
-    // Глаза головы
-    const head = snake[0];
-    if (head) {
-        ctx.fillStyle = 'white';
-        const eyeOffsets = {
-            '1,0': [{x: 12, y: 5}, {x: 12, y: 13}],
-            '-1,0': [{x: 6, y: 5}, {x: 6, y: 13}],
-            '0,1': [{x: 5, y: 12}, {x: 13, y: 12}],
-            '0,-1': [{x: 5, y: 6}, {x: 13, y: 6}]
-        };
-        const key = `${direction.dx},${direction.dy}`;
-        const eyes = eyeOffsets[key] || eyeOffsets['1,0'];
-        eyes.forEach(pos => {
-            ctx.beginPath();
-            ctx.arc(head.x * CELL_SIZE + pos.x, head.y * CELL_SIZE + pos.y, 2, 0, 2 * Math.PI);
-            ctx.fill();
-        });
-    }
 }
 
 function updateStats() {
     document.getElementById('score').textContent = score;
-    document.getElementById('best-score').textContent = bestScore;
     document.getElementById('steps').textContent = steps;
-    document.getElementById('generation').textContent = generation;
 
-    // Обновляем прогресс
     const progress = Math.min((steps / maxSteps) * 100, 100);
     document.getElementById('progressFill').style.width = progress + '%';
-}
-
-function updateBestScore() {
-    if (score > bestScore) {
-        bestScore = score;
-        document.getElementById('best-score').textContent = bestScore;
-    }
 }
 
 // ========== AI ЛОГИКА ==========
@@ -276,16 +498,14 @@ async function aiStep() {
     const state = ai.getState(snake, food);
     const action = await ai.predict(state);
 
-    // Преобразуем действие в направление
     const actions = [
-        { dx: 0, dy: -1 }, // вверх
-        { dx: 0, dy: 1 },  // вниз
-        { dx: -1, dy: 0 }, // влево
-        { dx: 1, dy: 0 }   // вправо
+        { dx: 0, dy: -1 },
+        { dx: 0, dy: 1 },
+        { dx: -1, dy: 0 },
+        { dx: 1, dy: 0 }
     ];
 
     const newDir = actions[action];
-    // Запрещаем разворот
     if (!(direction.dx === -newDir.dx && direction.dy === -newDir.dy)) {
         nextDirection = newDir;
     }
@@ -299,10 +519,12 @@ let trainingInterval = null;
 async function startTraining() {
     if (isTraining) return;
 
-    await ai.loadModel();
+    if (!ai.loaded) {
+        await ai.loadModel();
+    }
+
     isTraining = true;
     isPaused = false;
-    generation++;
 
     initGame();
     draw();
@@ -313,8 +535,7 @@ async function startTraining() {
         if (!gameOver && !isPaused) {
             await aiStep();
         } else if (gameOver && isTraining) {
-            // Рестарт при смерти
-            generation++;
+            // Рестарт
             initGame();
             draw();
             updateStats();
@@ -333,20 +554,37 @@ function resetGame() {
         clearInterval(trainingInterval);
         trainingInterval = null;
     }
+
+    // Сбрасываем историю
+    history.generations = [];
+    history.scores = [];
+    history.rewards = [];
+    history.avgScores = [];
+    history.bestScores = [];
+    history.epsilonHistory = [];
     generation = 0;
+    bestScore = 0;
+    ai.epsilon = 1.0;
+
     initGame();
     draw();
     updateStats();
+    updateCharts();
+
     document.getElementById('pauseBtn').textContent = '⏸ Пауза';
+    document.getElementById('best-score').textContent = '0';
+    document.getElementById('avg-score').textContent = '0.0';
+    document.getElementById('epsilon').textContent = '1.000';
+    document.getElementById('generation').textContent = '0';
 }
 
 function toggleSpeed() {
-    const speeds = [100, 50, 25, 150];
+    const speeds = [100, 50, 25, 200];
     const labels = ['1x', '2x', '4x', '0.5x'];
     let currentIndex = speeds.indexOf(speed);
     currentIndex = (currentIndex + 1) % speeds.length;
     speed = speeds[currentIndex];
-    document.getElementById('speedBtn').textContent = `⚡ Скорость: ${labels[currentIndex]}`;
+    document.getElementById('speedBtn').textContent = `⚡ ${labels[currentIndex]}`;
 
     if (isTraining) {
         clearInterval(trainingInterval);
@@ -354,7 +592,6 @@ function toggleSpeed() {
             if (!gameOver && !isPaused) {
                 await aiStep();
             } else if (gameOver && isTraining) {
-                generation++;
                 initGame();
                 draw();
                 updateStats();
@@ -364,28 +601,10 @@ function toggleSpeed() {
 }
 
 // ========== ЗАПУСК ==========
+initCharts();
 initGame();
 draw();
 updateStats();
-
-// Пробуем загрузить модель при старте
 ai.loadModel();
 
-// Обработка клавиш для ручного управления (опционально)
-document.addEventListener('keydown', (e) => {
-    if (isTraining) return; // AI управляет
-
-    const keyMap = {
-        'ArrowUp': { dx: 0, dy: -1 },
-        'ArrowDown': { dx: 0, dy: 1 },
-        'ArrowLeft': { dx: -1, dy: 0 },
-        'ArrowRight': { dx: 1, dy: 0 }
-    };
-
-    const newDir = keyMap[e.key];
-    if (newDir && !(direction.dx === -newDir.dx && direction.dy === -newDir.dy)) {
-        nextDirection = newDir;
-    }
-});
-
-console.log('🐍 AI Snake загружен! Нажмите "Начать обучение"');
+console.log('🐍 AI Snake с графиками загружен!');
