@@ -25,7 +25,7 @@ V_MIN = -100
 V_MAX = 300
 
 # Обучение
-EPISODES = 300
+EPISODES = 100  # Для теста 100 эпизодов, потом увеличь
 UPDATE_EVERY = 2
 TARGET_UPDATE = 50
 MIN_REPLAY_SIZE = 500
@@ -442,9 +442,11 @@ def train():
 
 # ========== СОХРАНЕНИЕ ==========
 def save_for_web(agent, scores, losses, rewards):
+    # Сохраняем модель
     torch.save(agent.model.state_dict(), 'model.pt')
     print("✅ model.pt сохранен")
 
+    # Сохраняем конфиг
     config = {
         "input_size": STATE_SIZE,
         "output_size": ACTION_SIZE,
@@ -455,16 +457,24 @@ def save_for_web(agent, scores, losses, rewards):
         json.dump(config, f, indent=2)
     print("✅ model_config.json сохранен")
 
+    # Сохраняем историю с проверкой
     history = {
         "scores": scores,
         "losses": losses,
         "rewards": rewards,
         "epsilons": [0.0] * len(scores)
     }
+
+    # Проверяем что данные есть
+    print(f"📊 Сохраняем историю: {len(scores)} записей")
+    print(f"   - Счета: {scores[:5]}..." if len(scores) > 5 else f"   - Счета: {scores}")
+    print(f"   - Loss: {losses[:5]}..." if len(losses) > 5 else f"   - Loss: {losses}")
+
     with open('training_history.json', 'w') as f:
-        json.dump(history, f)
+        json.dump(history, f, indent=2)
     print("✅ training_history.json сохранен")
 
+    # Конвертируем в ONNX
     class Wrapper(nn.Module):
         def forward(self, x):
             return agent.model.get_q_values(x)
@@ -489,6 +499,15 @@ def save_for_web(agent, scores, losses, rewards):
         }
     )
     print("✅ model.onnx сохранен")
+
+    # Проверяем созданные файлы
+    print("\n📁 Проверка файлов:")
+    for f in ['model.pt', 'model.onnx', 'model_config.json', 'training_history.json']:
+        if os.path.exists(f):
+            size = os.path.getsize(f)
+            print(f"   ✅ {f} ({size} bytes)")
+        else:
+            print(f"   ❌ {f} НЕ СОЗДАН!")
 
 
 if __name__ == "__main__":
