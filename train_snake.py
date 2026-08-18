@@ -4,33 +4,32 @@ import torch.optim as optim
 import numpy as np
 import random
 import json
-from collections import deque, namedtuple
+from collections import deque
 import os
 import math
 
 # ========== НАСТРОЙКИ ==========
-GRID_SIZE = 12
+GRID_SIZE = 10  # ← УМЕНЬШИЛИ ДО 10!
 STATE_SIZE = 24
 ACTION_SIZE = 4
 
-# Параметры Rainbow
-BUFFER_SIZE = 200_000
-BATCH_SIZE = 512
-LR = 0.00025
+# Параметры Rainbow (оптимизированные)
+BUFFER_SIZE = 100_000  # Меньше для быстрого обучения
+BATCH_SIZE = 256  # Оптимальный размер
+LR = 0.0005  # Чуть выше для скорости
 GAMMA = 0.99
-TAU = 0.005  # Soft update
-MULTI_STEP = 3  # N-step returns
-ATOMS = 51  # Распределение
+TAU = 0.01  # Быстрее обновление
+MULTI_STEP = 2  # Меньше для простоты
+ATOMS = 51
 V_MIN = -100
-V_MAX = 400
-NOISY_STD = 0.1
+V_MAX = 300
 
 # Обучение
-EPISODES = 500
-UPDATE_EVERY = 4
-TARGET_UPDATE = 100
-MIN_REPLAY_SIZE = 1000
-ALPHA = 0.6  # Приоритеты
+EPISODES = 300  # Меньше эпизодов
+UPDATE_EVERY = 2
+TARGET_UPDATE = 50
+MIN_REPLAY_SIZE = 500
+ALPHA = 0.6
 BETA = 0.4
 BETA_INCREMENT = 0.001
 
@@ -75,7 +74,7 @@ class NoisyLinear(nn.Module):
         return torch.nn.functional.linear(x, weight, bias)
 
 
-# ========== DUELING NETWORK ==========
+# ========== DUELING NETWORK (упрощенная) ==========
 class RainbowDQN(nn.Module):
     def __init__(self, state_size, action_size, atoms, v_min, v_max):
         super().__init__()
@@ -84,34 +83,24 @@ class RainbowDQN(nn.Module):
         self.v_min = v_min
         self.v_max = v_max
 
-        # Общая сеть
-        self.fc1 = NoisyLinear(state_size, 512)
-        self.fc2 = NoisyLinear(512, 256)
+        # Упрощенная сеть
+        self.fc1 = NoisyLinear(state_size, 256)
+        self.fc2 = NoisyLinear(256, 128)
 
         # Value stream
-        self.value_fc = NoisyLinear(256, 128)
         self.value = NoisyLinear(128, atoms)
 
         # Advantage stream
-        self.adv_fc = NoisyLinear(256, 128)
         self.advantage = NoisyLinear(128, action_size * atoms)
 
     def forward(self, x):
         x = torch.relu(self.fc1(x))
         x = torch.relu(self.fc2(x))
 
-        # Value
-        v = torch.relu(self.value_fc(x))
-        v = self.value(v).view(-1, 1, self.atoms)
+        v = self.value(x).view(-1, 1, self.atoms)
+        a = self.advantage(x).view(-1, self.action_size, self.atoms)
 
-        # Advantage
-        a = torch.relu(self.adv_fc(x))
-        a = self.advantage(a).view(-1, self.action_size, self.atoms)
-
-        # Суммируем
         q = v + a - a.mean(dim=1, keepdim=True)
-
-        # Softmax по распределению
         q = torch.softmax(q, dim=2)
         return q
 
@@ -183,7 +172,7 @@ class PrioritizedReplayBuffer:
         return self.size
 
 
-# ========== ИГРА ==========
+# ========== ИГРА (поле 10x10) ==========
 class SnakeGame:
     def __init__(self):
         self.grid_size = GRID_SIZE
@@ -255,7 +244,7 @@ class SnakeGame:
 
         if new_head == self.food:
             self.score += 1
-            reward = 100
+            reward = 200  # Увеличил награду!
             self.food = self._spawn_food()
             self.steps = 0
         else:
@@ -266,19 +255,16 @@ class SnakeGame:
             self.last_distance = new_dist
 
             if new_dist < old_dist:
-                reward += 5
+                reward += 10
             else:
-                reward -= 3
+                reward -= 5
 
-            if self.steps > 50 and self.score == 0:
-                reward -= 1
-
-            if self.steps > 0 and self.steps % 20 == 0:
-                reward += 2
+            if self.steps > 30 and self.score == 0:
+                reward -= 2
 
         self.total_reward += reward
 
-        if self.steps > 200:
+        if self.steps > 150:
             self.game_over = True
 
         return self._get_state(), reward, self.game_over
@@ -293,25 +279,19 @@ class RainbowAgent:
         self.target_model = RainbowDQN(STATE_SIZE, ACTION_SIZE, ATOMS, V_MIN, V_MAX).to(self.device)
         self.target_model.load_state_dict(self.model.state_dict())
 
-        self.optimizer = optim.Adam(self.model.parameters(), lr=LR, eps=1.5e-4)
+        self.optimizer = optim.Adam(self.model.parameters(), lr=LR)
 
         self.memory = PrioritizedReplayBuffer(BUFFER_SIZE, ALPHA, BETA)
 
         self.step_count = 0
         self.episode_count = 0
 
-        # Multi-step
-        self.n_step_buffer = deque(maxlen=MULTI_STEP)
-
-        # Statistics
         self.losses = []
-        self.q_values = []
 
         print(f"🌈 Rainbow DQN на {self.device}")
+        print(f"📐 Поле: {GRID_SIZE}x{GRID_SIZE}")
         print(f"📊 Размер буфера: {BUFFER_SIZE}")
         print(f"📊 Размер батча: {BATCH_SIZE}")
-        print(f"🎯 Multi-step: {MULTI_STEP}")
-        print(f"📊 Атомы распределения: {ATOMS}")
 
     def act(self, state, training=True):
         self.model.eval()
@@ -335,7 +315,6 @@ class RainbowAgent:
         if self.step_count % UPDATE_EVERY != 0:
             return None
 
-        # Сэмплируем
         batch = self.memory.sample(BATCH_SIZE)
         if batch is None:
             return None
@@ -348,72 +327,50 @@ class RainbowAgent:
         weights = torch.FloatTensor(batch['weights']).to(self.device)
         indices = batch['indices']
 
-        # Distributional DQN
         support = torch.linspace(V_MIN, V_MAX, ATOMS).to(self.device)
         delta = (V_MAX - V_MIN) / (ATOMS - 1)
 
-        # Текущее распределение
         dist = self.model(states)
         dist = dist[range(BATCH_SIZE), actions]
 
-        # Целевое распределение
         with torch.no_grad():
             next_dist = self.target_model(next_states)
-
-            # Double DQN для выбора действия
             next_q = self.model.get_q_values(next_states)
             next_actions = next_q.argmax(dim=1)
-
             next_dist = next_dist[range(BATCH_SIZE), next_actions]
 
-            # Multi-step returns
-            n_step_rewards = rewards
-            for n in range(1, MULTI_STEP):
-                # Здесь нужен n-step буфер
-                pass
-
-            # Смещаем распределение
             target_z = rewards.unsqueeze(1) + (1 - dones).unsqueeze(1) * GAMMA * support.unsqueeze(0)
             target_z = torch.clamp(target_z, V_MIN, V_MAX)
 
-            # Проекция на атомы
             b = (target_z - V_MIN) / delta
             l = b.floor().long()
             u = b.ceil().long()
 
-            # Создаем целевое распределение
             target_dist = torch.zeros_like(next_dist)
             for i in range(BATCH_SIZE):
                 target_dist[i].index_add_(0, l[i], next_dist[i] * (u[i] - b[i]))
                 target_dist[i].index_add_(0, u[i], next_dist[i] * (b[i] - l[i]))
 
-        # Вычисляем loss
         loss = -(target_dist * torch.log(dist + 1e-8)).sum(dim=1)
         loss = (loss * weights).mean()
 
-        # Оптимизация
         self.optimizer.zero_grad()
         loss.backward()
         torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
         self.optimizer.step()
 
-        # Сбрасываем шум
         self.model.reset_noise()
         self.target_model.reset_noise()
 
-        # Обновляем приоритеты
         with torch.no_grad():
             td_errors = (target_dist * support.unsqueeze(0)).sum(dim=1) - (dist * support.unsqueeze(0)).sum(dim=1)
             td_errors = td_errors.cpu().numpy()
             self.memory.update_priorities(indices, td_errors)
 
-        # Обновляем target сеть
         if self.step_count % TARGET_UPDATE == 0:
             self.target_model.load_state_dict(self.model.state_dict())
 
-        # Сохраняем статистику
         self.losses.append(loss.item())
-
         return loss.item()
 
     def reset_noise(self):
@@ -432,9 +389,7 @@ def train():
     losses_history = []
 
     print("=" * 60)
-    print("🌈 НАЧАЛО ОБУЧЕНИЯ RAINBOW DQN")
-    print(f"📊 Эпизодов: {EPISODES}")
-    print(f"🎯 Награда за еду: 100, Штраф за смерть: -50")
+    print("🌈 НАЧАЛО ОБУЧЕНИЯ (поле 10x10)")
     print("=" * 60)
 
     for episode in range(EPISODES):
@@ -445,7 +400,6 @@ def train():
         while not game.game_over:
             action = agent.act(state)
             next_state, reward, done = game.step(action)
-
             agent.remember(state, action, reward, next_state, done)
             loss = agent.learn()
 
@@ -456,16 +410,13 @@ def train():
             episode_reward += reward
 
         agent.episode_count += 1
-
-        # Сброс шума после эпизода
         agent.reset_noise()
 
         scores.append(game.score)
         rewards_history.append(episode_reward)
 
         if episode_losses:
-            avg_loss = np.mean(episode_losses)
-            losses_history.append(avg_loss)
+            losses_history.append(np.mean(episode_losses))
         else:
             losses_history.append(0)
 
@@ -474,8 +425,7 @@ def train():
             torch.save(agent.model.state_dict(), 'best_model.pt')
             print(f"🏆 НОВЫЙ РЕКОРД: {best_score} (эпизод {episode})")
 
-        # Статистика
-        if episode % 10 == 0:
+        if episode % 5 == 0:
             avg_score = np.mean(scores[-10:]) if scores else 0
             avg_reward = np.mean(rewards_history[-10:]) if rewards_history else 0
             avg_loss = np.mean(losses_history[-10:]) if losses_history else 0
@@ -484,9 +434,8 @@ def train():
                   f"Счет: {game.score:3d} | "
                   f"Ср. счет: {avg_score:5.1f} | "
                   f"Лучший: {best_score:3d} | "
-                  f"Награда: {avg_reward:7.1f} | "
-                  f"Loss: {avg_loss:6.4f} | "
-                  f"Буфер: {len(agent.memory):6d}")
+                  f"Буфер: {len(agent.memory):6d} | "
+                  f"Loss: {avg_loss:.4f}")
 
     print("=" * 60)
     print(f"✅ ОБУЧЕНИЕ ЗАВЕРШЕНО!")
@@ -498,35 +447,29 @@ def train():
 
 # ========== СОХРАНЕНИЕ ==========
 def save_for_web(agent, scores, losses, rewards):
-    # Сохраняем модель
     torch.save(agent.model.state_dict(), 'model.pt')
     print("✅ model.pt сохранен")
 
-    # Сохраняем конфиг
     config = {
         "input_size": STATE_SIZE,
-        "hidden_size": 512,
         "output_size": ACTION_SIZE,
         "grid_size": GRID_SIZE,
-        "rainbow": True,
-        "atoms": ATOMS
+        "rainbow": True
     }
     with open('model_config.json', 'w') as f:
         json.dump(config, f, indent=2)
     print("✅ model_config.json сохранен")
 
-    # Сохраняем историю
     history = {
         "scores": scores,
         "losses": losses,
         "rewards": rewards,
-        "epsilons": [0.01] * len(scores)  # No epsilon in Rainbow
+        "epsilons": [0.0] * len(scores)
     }
     with open('training_history.json', 'w') as f:
         json.dump(history, f)
     print("✅ training_history.json сохранен")
 
-    # Конвертируем в ONNX
     class Wrapper(nn.Module):
         def forward(self, x):
             return agent.model.get_q_values(x)

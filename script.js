@@ -335,16 +335,24 @@ function addTrainingData(score, reward, eps, loss) {
 }
 
 // ========== УПРАВЛЕНИЕ СКОРОСТЬЮ ==========
+let speed = 100; // Начальная скорость
+
 function changeSpeed(delta) {
-    const minSpeed = 20;
+    const minSpeed = 1; // ← ТЕПЕРЬ 1ms!
     const maxSpeed = 500;
-    const newSpeed = Math.max(minSpeed, Math.min(maxSpeed, speed + delta));
+
+    // Если скорость <= 20, уменьшаем на 1
+    let step = delta;
+    if (speed <= 20 && delta < 0) {
+        step = -1;
+    }
+
+    const newSpeed = Math.max(minSpeed, Math.min(maxSpeed, speed + step));
 
     if (newSpeed !== speed) {
         speed = newSpeed;
         document.getElementById('speedDisplay').textContent = speed + 'ms';
 
-        // Обновляем интервал если тренировка идет
         if (isTraining && trainingInterval) {
             clearInterval(trainingInterval);
             trainingInterval = setInterval(async () => {
