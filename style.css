@@ -1,8 +1,4 @@
-* {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-}
+* { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -23,12 +19,7 @@ body {
     width: 100%;
 }
 
-h1 {
-    text-align: center;
-    color: #333;
-    margin-bottom: 5px;
-    font-size: 24px;
-}
+h1 { text-align: center; color: #333; margin-bottom: 5px; font-size: 24px; }
 
 .stats {
     display: grid;
@@ -66,17 +57,8 @@ h1 {
     margin-bottom: 15px;
 }
 
-.game-left {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-}
-
-.game-right {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
+.game-left { display: flex; flex-direction: column; align-items: center; }
+.game-right { display: flex; flex-direction: column; gap: 8px; }
 
 .chart-container {
     background: #f8f9fa;
@@ -86,10 +68,7 @@ h1 {
     position: relative;
 }
 
-.chart-container canvas {
-    width: 100% !important;
-    height: 100% !important;
-}
+.chart-container canvas { width: 100% !important; height: 100% !important; }
 
 #gameCanvas {
     display: block;
@@ -123,26 +102,12 @@ button {
     min-width: 60px;
 }
 
-button:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 5px 15px rgba(0,0,0,0.3);
-}
+button:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
+button:active { transform: translateY(0); }
 
-button:active {
-    transform: translateY(0);
-}
-
-#startBtn {
-    background: linear-gradient(135deg, #667eea, #764ba2);
-}
-
-#pauseBtn {
-    background: linear-gradient(135deg, #f39c12, #e67e22);
-}
-
-#resetBtn {
-    background: linear-gradient(135deg, #e74c3c, #c0392b);
-}
+#startBtn { background: linear-gradient(135deg, #667eea, #764ba2); }
+#pauseBtn { background: linear-gradient(135deg, #f39c12, #e67e22); }
+#resetBtn { background: linear-gradient(135deg, #e74c3c, #c0392b); }
 
 .speed-controls {
     display: flex;
@@ -164,10 +129,7 @@ button:active {
     font-size: 16px;
 }
 
-.speed-controls button:hover {
-    transform: scale(1.1);
-}
-
+.speed-controls button:hover { transform: scale(1.1); }
 .speed-controls span {
     font-weight: bold;
     color: #333;
@@ -176,11 +138,7 @@ button:active {
     font-size: 13px;
 }
 
-.info {
-    text-align: center;
-    color: #666;
-    font-size: 13px;
-}
+.info { text-align: center; color: #666; font-size: 13px; }
 
 .progress-bar {
     width: 100%;
@@ -199,40 +157,15 @@ button:active {
 }
 
 @media (max-width: 850px) {
-    .game-area {
-        grid-template-columns: 1fr;
-    }
-
-    .stats {
-        grid-template-columns: repeat(3, 1fr);
-    }
-
-    .chart-container {
-        height: 130px;
-    }
-
-    #gameCanvas {
-        width: 100%;
-        height: auto;
-        max-width: 300px;
-    }
+    .game-area { grid-template-columns: 1fr; }
+    .stats { grid-template-columns: repeat(3, 1fr); }
+    .chart-container { height: 130px; }
+    #gameCanvas { width: 100%; height: auto; max-width: 300px; }
 }
 
 @media (max-width: 500px) {
-    .stats {
-        grid-template-columns: repeat(2, 1fr);
-    }
-
-    .container {
-        padding: 10px;
-    }
-
-    .controls {
-        flex-direction: column;
-        align-items: stretch;
-    }
-
-    .speed-controls {
-        flex: 1;
-    }
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .container { padding: 10px; }
+    .controls { flex-direction: column; align-items: stretch; }
+    .speed-controls { flex: 1; }
 }

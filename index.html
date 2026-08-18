@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Snake - Rainbow DQN 10x10</title>
+    <title>AI Snake - Rainbow DQN</title>
     <link rel="stylesheet" href="style.css">
     <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.15.1/dist/ort.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -14,36 +14,17 @@
         <p style="text-align:center;color:#666;margin-bottom:15px;">Поле 10×10 | Обучение с подкреплением</p>
 
         <div class="stats">
-            <div class="stat-item">
-                <span>Поколение</span>
-                <span id="generation">0</span>
-            </div>
-            <div class="stat-item">
-                <span>Счет</span>
-                <span id="score">0</span>
-            </div>
-            <div class="stat-item">
-                <span>Лучший</span>
-                <span id="best-score">0</span>
-            </div>
-            <div class="stat-item">
-                <span>Шаги</span>
-                <span id="steps">0</span>
-            </div>
-            <div class="stat-item">
-                <span>Loss</span>
-                <span id="loss-display">0.00</span>
-            </div>
-            <div class="stat-item">
-                <span>Ср. счет</span>
-                <span id="avg-score">0.0</span>
-            </div>
+            <div class="stat-item"><span>Поколение</span><span id="generation">0</span></div>
+            <div class="stat-item"><span>Счет</span><span id="score">0</span></div>
+            <div class="stat-item"><span>Лучший</span><span id="best-score">0</span></div>
+            <div class="stat-item"><span>Шаги</span><span id="steps">0</span></div>
+            <div class="stat-item"><span>Loss</span><span id="loss-display">0.00</span></div>
+            <div class="stat-item"><span>Ср. счет</span><span id="avg-score">0.0</span></div>
         </div>
 
         <div class="game-area">
             <div class="game-left">
                 <canvas id="gameCanvas" width="300" height="300"></canvas>
-
                 <div class="controls">
                     <button id="startBtn" onclick="startTraining()">▶ Начать</button>
                     <button id="pauseBtn" onclick="togglePause()">⏸ Пауза</button>
@@ -55,28 +36,18 @@
                     </div>
                 </div>
             </div>
-
             <div class="game-right">
-                <div class="chart-container">
-                    <canvas id="scoreChart"></canvas>
-                </div>
-                <div class="chart-container">
-                    <canvas id="rewardChart"></canvas>
-                </div>
-                <div class="chart-container">
-                    <canvas id="lossChart"></canvas>
-                </div>
+                <div class="chart-container"><canvas id="scoreChart"></canvas></div>
+                <div class="chart-container"><canvas id="rewardChart"></canvas></div>
+                <div class="chart-container"><canvas id="lossChart"></canvas></div>
             </div>
         </div>
 
         <div class="info">
             <p>🌈 Rainbow DQN | Награда: +200 за еду, -50 за смерть</p>
-            <div class="progress-bar">
-                <div id="progressFill" class="progress-fill"></div>
-            </div>
+            <div class="progress-bar"><div id="progressFill" class="progress-fill"></div></div>
         </div>
     </div>
-
     <script src="script.js"></script>
 </body>
 </html>
