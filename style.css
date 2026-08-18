@@ -74,14 +74,14 @@ h1 {
 .game-right {
     display: flex;
     flex-direction: column;
-    gap: 15px;
+    gap: 10px;
 }
 
 .chart-container {
     background: #f8f9fa;
     border-radius: 12px;
     padding: 10px;
-    height: 200px;
+    height: 180px;
     position: relative;
 }
 
@@ -106,6 +106,7 @@ h1 {
     justify-content: center;
     flex-wrap: wrap;
     width: 100%;
+    align-items: center;
 }
 
 button {
@@ -142,8 +143,36 @@ button:active {
     background: linear-gradient(135deg, #e74c3c, #c0392b);
 }
 
-#speedBtn {
+.speed-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #f0f0f0;
+    padding: 5px 10px;
+    border-radius: 10px;
+    flex: 1;
+    min-width: 150px;
+    justify-content: center;
+}
+
+.speed-controls button {
     background: linear-gradient(135deg, #2ecc71, #27ae60);
+    padding: 8px 15px;
+    min-width: 40px;
+    flex: 0;
+    font-size: 18px;
+}
+
+.speed-controls button:hover {
+    transform: scale(1.1);
+}
+
+.speed-controls span {
+    font-weight: bold;
+    color: #333;
+    min-width: 60px;
+    text-align: center;
+    font-size: 14px;
 }
 
 .info {
@@ -177,6 +206,10 @@ button:active {
         grid-template-columns: repeat(3, 1fr);
     }
 
+    .chart-container {
+        height: 150px;
+    }
+
     #gameCanvas {
         width: 100%;
         height: auto;
@@ -191,5 +224,14 @@ button:active {
 
     .container {
         padding: 15px;
+    }
+
+    .controls {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .speed-controls {
+        flex: 1;
     }
 }

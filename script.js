@@ -1,12 +1,11 @@
 // ========== КОНФИГУРАЦИЯ ==========
-const GRID_SIZE = 12;  // ← ИЗМЕНИЛ НА 12!
-const CELL_SIZE = 30;  // 360/12 = 30px
+const GRID_SIZE = 12;
+const CELL_SIZE = 30;
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
-// Устанавливаем размер canvas
-canvas.width = GRID_SIZE * CELL_SIZE;  // 360
-canvas.height = GRID_SIZE * CELL_SIZE; // 360
+canvas.width = GRID_SIZE * CELL_SIZE;
+canvas.height = GRID_SIZE * CELL_SIZE;
 
 // ========== СОСТОЯНИЕ ==========
 let snake = [];
@@ -38,20 +37,19 @@ const history = {
 };
 
 let scoreChart = null;
+let rewardChart = null;
 let lossChart = null;
 let trainingInterval = null;
 
-// ========== ЗАГРУЗКА ИСТОРИИ ОБУЧЕНИЯ ==========
+// ========== ЗАГРУЗКА ИСТОРИИ ==========
 async function loadTrainingHistory() {
     try {
         const response = await fetch('training_history.json');
         if (response.ok) {
             const data = await response.json();
-            console.log('📊 Загружена история обучения:', data);
+            console.log('📊 Загружена история обучения');
 
-            // Загружаем данные
             if (data.scores && data.scores.length > 0) {
-                // Генерируем поколения
                 const generations = data.scores.map((_, i) => i + 1);
 
                 history.generations = generations;
@@ -60,7 +58,6 @@ async function loadTrainingHistory() {
                 history.epsilons = data.epsilons || [];
                 history.rewards = data.rewards || [];
 
-                // Вычисляем лучший и средний
                 let best = 0;
                 const bestScores = [];
                 const avgScores = [];
@@ -80,13 +77,11 @@ async function loadTrainingHistory() {
                 bestScore = best;
                 generation = data.scores.length;
 
-                // Обновляем статистику
                 document.getElementById('best-score').textContent = bestScore;
                 document.getElementById('generation').textContent = generation;
                 document.getElementById('avg-score').textContent = avgScores[avgScores.length - 1]?.toFixed(1) || '0.0';
                 document.getElementById('epsilon').textContent = data.epsilons[data.epsilons.length - 1]?.toFixed(3) || '1.000';
 
-                // Обновляем графики
                 updateCharts();
                 console.log('✅ История загружена! Поколений:', data.scores.length);
             }
@@ -138,30 +133,83 @@ function initCharts() {
             maintainAspectRatio: false,
             plugins: {
                 legend: {
-                    labels: { font: { size: 10 }, boxWidth: 12 }
+                    labels: { font: { size: 9 }, boxWidth: 10 }
                 },
                 title: {
                     display: true,
-                    text: '📊 Прогресс обучения (поле 12x12)',
-                    font: { size: 12 }
+                    text: '📊 Прогресс обучения',
+                    font: { size: 11 }
                 }
             },
             scales: {
                 y: {
                     beginAtZero: true,
-                    title: { display: true, text: 'Счет' }
+                    title: { display: true, text: 'Счет', font: { size: 9 } }
                 },
                 x: {
-                    title: { display: true, text: 'Поколение' },
-                    ticks: { maxTicksLimit: 30 }
+                    title: { display: true, text: 'Поколение', font: { size: 9 } },
+                    ticks: { maxTicksLimit: 20 }
+                }
+            }
+        }
+    });
+
+    // График наград
+    const ctx2 = document.getElementById('rewardChart').getContext('2d');
+    rewardChart = new Chart(ctx2, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [
+                {
+                    label: 'Общая награда',
+                    data: [],
+                    borderColor: '#e67e22',
+                    backgroundColor: 'rgba(230, 126, 34, 0.1)',
+                    borderWidth: 2,
+                    pointRadius: 1,
+                    tension: 0.3,
+                    fill: true
+                },
+                {
+                    label: 'Средняя (10)',
+                    data: [],
+                    borderColor: '#d35400',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0.3,
+                    borderDash: [5, 5]
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    labels: { font: { size: 9 }, boxWidth: 10 }
+                },
+                title: {
+                    display: true,
+                    text: '💰 Награды за эпизод',
+                    font: { size: 11 }
+                }
+            },
+            scales: {
+                y: {
+                    title: { display: true, text: 'Награда', font: { size: 9 } }
+                },
+                x: {
+                    title: { display: true, text: 'Поколение', font: { size: 9 } },
+                    ticks: { maxTicksLimit: 20 }
                 }
             }
         }
     });
 
     // График потерь и epsilon
-    const ctx2 = document.getElementById('lossChart').getContext('2d');
-    lossChart = new Chart(ctx2, {
+    const ctx3 = document.getElementById('lossChart').getContext('2d');
+    lossChart = new Chart(ctx3, {
         type: 'line',
         data: {
             labels: [],
@@ -177,7 +225,7 @@ function initCharts() {
                     fill: true
                 },
                 {
-                    label: 'Epsilon (исследование)',
+                    label: 'Epsilon',
                     data: [],
                     borderColor: '#9b59b6',
                     borderWidth: 2,
@@ -193,30 +241,30 @@ function initCharts() {
             maintainAspectRatio: false,
             plugins: {
                 legend: {
-                    labels: { font: { size: 10 }, boxWidth: 12 }
+                    labels: { font: { size: 9 }, boxWidth: 10 }
                 },
                 title: {
                     display: true,
                     text: '🎯 Loss и Epsilon',
-                    font: { size: 12 }
+                    font: { size: 11 }
                 }
             },
             scales: {
                 y: {
                     beginAtZero: true,
                     position: 'left',
-                    title: { display: true, text: 'Loss' }
+                    title: { display: true, text: 'Loss', font: { size: 9 } }
                 },
                 y1: {
                     beginAtZero: true,
                     position: 'right',
                     max: 1,
-                    title: { display: true, text: 'Epsilon' },
+                    title: { display: true, text: 'Epsilon', font: { size: 9 } },
                     grid: { drawOnChartArea: false }
                 },
                 x: {
-                    title: { display: true, text: 'Поколение' },
-                    ticks: { maxTicksLimit: 30 }
+                    title: { display: true, text: 'Поколение', font: { size: 9 } },
+                    ticks: { maxTicksLimit: 20 }
                 }
             }
         }
@@ -233,6 +281,22 @@ function updateCharts() {
         scoreChart.data.datasets[1].data = history.avgScores;
         scoreChart.data.datasets[2].data = history.bestScores;
         scoreChart.update('none');
+    }
+
+    if (rewardChart) {
+        rewardChart.data.labels = labels;
+        rewardChart.data.datasets[0].data = history.rewards;
+
+        // Средняя награда за 10 игр
+        const avgRewards = [];
+        for (let i = 0; i < history.rewards.length; i++) {
+            const start = Math.max(0, i - 9);
+            const slice = history.rewards.slice(start, i + 1);
+            const avg = slice.reduce((a, b) => a + b, 0) / slice.length;
+            avgRewards.push(avg);
+        }
+        rewardChart.data.datasets[1].data = avgRewards;
+        rewardChart.update('none');
     }
 
     if (lossChart) {
@@ -253,25 +317,48 @@ function addTrainingData(score, reward, eps, loss) {
     history.epsilons.push(eps || 1.0);
     history.losses.push(loss || 0);
 
-    // Обновляем лучший счет
     if (score > bestScore) {
         bestScore = score;
     }
     history.bestScores.push(bestScore);
 
-    // Вычисляем средний за 10 игр
     const last10 = history.scores.slice(-10);
     const avg = last10.reduce((a, b) => a + b, 0) / last10.length;
     history.avgScores.push(avg);
 
-    // Обновляем статистику
     document.getElementById('best-score').textContent = bestScore;
     document.getElementById('avg-score').textContent = avg.toFixed(1);
     document.getElementById('epsilon').textContent = (eps || 1.0).toFixed(3);
     document.getElementById('generation').textContent = generation;
 
-    // Обновляем графики
     updateCharts();
+}
+
+// ========== УПРАВЛЕНИЕ СКОРОСТЬЮ ==========
+function changeSpeed(delta) {
+    const minSpeed = 20;
+    const maxSpeed = 500;
+    const newSpeed = Math.max(minSpeed, Math.min(maxSpeed, speed + delta));
+
+    if (newSpeed !== speed) {
+        speed = newSpeed;
+        document.getElementById('speedDisplay').textContent = speed + 'ms';
+
+        // Обновляем интервал если тренировка идет
+        if (isTraining && trainingInterval) {
+            clearInterval(trainingInterval);
+            trainingInterval = setInterval(async () => {
+                if (!gameOver && !isPaused) {
+                    await aiStep();
+                } else if (gameOver && isTraining) {
+                    lossValue = Math.random() * 0.5 + 0.1;
+                    initGame();
+                    draw();
+                    updateStats();
+                }
+            }, speed);
+        }
+    }
 }
 
 // ========== МОДЕЛЬ AI ==========
@@ -295,7 +382,7 @@ class SnakeAI {
             console.log('✅ Модель загружена!');
             return true;
         } catch (error) {
-            console.warn('⚠️ Ошибка загрузки модели:', error);
+            console.warn('⚠️ Ошибка:', error);
             this.loaded = false;
             this.useRandom = true;
             return false;
@@ -314,13 +401,9 @@ class SnakeAI {
             const x = head.x + dx;
             const y = head.y + dy;
 
-            // Стена
             state.push(x < 0 || x >= GRID_SIZE || y < 0 || y >= GRID_SIZE ? 1 : 0);
-
-            // Еда
             state.push(x === food.x && y === food.y ? 1 : 0);
 
-            // Хвост
             let isTail = false;
             for (let segment of snake) {
                 if (segment.x === x && segment.y === y) {
@@ -354,7 +437,7 @@ class SnakeAI {
             }
             return bestAction;
         } catch (error) {
-            console.error('❌ Ошибка предсказания:', error);
+            console.error('❌ Ошибка:', error);
             return Math.floor(Math.random() * 4);
         }
     }
@@ -407,7 +490,6 @@ function update() {
 
     let reward = 0;
 
-    // Проверка столкновений
     if (newHead.x < 0 || newHead.x >= GRID_SIZE ||
         newHead.y < 0 || newHead.y >= GRID_SIZE ||
         snake.some(s => s.x === newHead.x && s.y === newHead.y)) {
@@ -421,7 +503,6 @@ function update() {
     snake.unshift(newHead);
     steps++;
 
-    // Проверка еды
     if (newHead.x === food.x && newHead.y === food.y) {
         score++;
         reward = 200;
@@ -431,7 +512,6 @@ function update() {
     } else {
         snake.pop();
 
-        // Награда за приближение к еде
         const oldDist = Math.abs(head.x - food.x) + Math.abs(head.y - food.y);
         const newDist = Math.abs(newHead.x - food.x) + Math.abs(newHead.y - food.y);
 
@@ -441,10 +521,7 @@ function update() {
             reward = -8;
         }
 
-        // Штраф за долгие блуждания
         if (steps > 50 && score === 0) reward -= 2;
-
-        // Бонус за выживание
         if (steps > 0 && steps % 20 === 0) reward += 3;
     }
 
@@ -460,24 +537,15 @@ function update() {
 }
 
 function onGameOver(reward) {
-    // Добавляем данные с loss
     addTrainingData(
         score,
         totalReward,
         ai.epsilon || 1.0,
-        lossValue || Math.random() * 0.5 // Симулируем loss если нет реального
+        lossValue || Math.random() * 0.5
     );
 
-    // Уменьшаем epsilon
     if (ai.epsilon > 0.01) {
         ai.epsilon = Math.max(0.01, ai.epsilon * 0.9995);
-    }
-}
-
-function updateBestScore() {
-    if (score > bestScore) {
-        bestScore = score;
-        document.getElementById('best-score').textContent = bestScore;
     }
 }
 
@@ -485,7 +553,6 @@ function updateBestScore() {
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Рисуем сетку
     ctx.strokeStyle = 'rgba(255,255,255,0.05)';
     ctx.lineWidth = 1;
     for (let i = 0; i <= GRID_SIZE; i++) {
@@ -499,7 +566,6 @@ function draw() {
         ctx.stroke();
     }
 
-    // Еда
     ctx.fillStyle = '#ff6b6b';
     ctx.shadowBlur = 20;
     ctx.shadowColor = '#ff6b6b';
@@ -508,12 +574,10 @@ function draw() {
     ctx.fill();
     ctx.shadowBlur = 0;
 
-    // Змейка
     snake.forEach((segment, index) => {
         const x = segment.x * CELL_SIZE;
         const y = segment.y * CELL_SIZE;
 
-        // Градиент для головы
         if (index === 0) {
             const gradient = ctx.createRadialGradient(
                 x + 8, y + 8, 2,
@@ -523,7 +587,6 @@ function draw() {
             gradient.addColorStop(1, '#44b39d');
             ctx.fillStyle = gradient;
         } else {
-            // Тело - от светлого к темному
             const intensity = 0.6 + (index / snake.length) * 0.4;
             ctx.fillStyle = `rgba(69, 183, 209, ${intensity})`;
         }
@@ -533,7 +596,6 @@ function draw() {
         ctx.fillRect(x + 1, y + 1, CELL_SIZE - 2, CELL_SIZE - 2);
         ctx.shadowBlur = 0;
 
-        // Глаза головы
         if (index === 0) {
             ctx.fillStyle = 'white';
             let eye1, eye2;
@@ -619,7 +681,6 @@ async function startTraining() {
         if (!gameOver && !isPaused) {
             await aiStep();
         } else if (gameOver && isTraining) {
-            // Симулируем случайный loss для демонстрации
             lossValue = Math.random() * 0.5 + 0.1;
             initGame();
             draw();
@@ -640,7 +701,6 @@ function resetGame() {
         trainingInterval = null;
     }
 
-    // Сбрасываем историю
     history.generations = [];
     history.scores = [];
     history.rewards = [];
@@ -663,29 +723,7 @@ function resetGame() {
     document.getElementById('avg-score').textContent = '0.0';
     document.getElementById('epsilon').textContent = '1.000';
     document.getElementById('generation').textContent = '0';
-}
-
-function toggleSpeed() {
-    const speeds = [100, 50, 25, 200];
-    const labels = ['1x', '2x', '4x', '0.5x'];
-    let currentIndex = speeds.indexOf(speed);
-    currentIndex = (currentIndex + 1) % speeds.length;
-    speed = speeds[currentIndex];
-    document.getElementById('speedBtn').textContent = `⚡ ${labels[currentIndex]}`;
-
-    if (isTraining) {
-        clearInterval(trainingInterval);
-        trainingInterval = setInterval(async () => {
-            if (!gameOver && !isPaused) {
-                await aiStep();
-            } else if (gameOver && isTraining) {
-                lossValue = Math.random() * 0.5 + 0.1;
-                initGame();
-                draw();
-                updateStats();
-            }
-        }, speed);
-    }
+    document.getElementById('speedDisplay').textContent = speed + 'ms';
 }
 
 // ========== ЗАПУСК ==========
@@ -694,22 +732,18 @@ async function init() {
     initGame();
     draw();
     updateStats();
+    document.getElementById('speedDisplay').textContent = speed + 'ms';
 
-    // Загружаем историю
     await loadTrainingHistory();
-
-    // Загружаем модель
     await ai.loadModel();
 
     console.log('🐍 AI Snake 12x12 загружен!');
     console.log(`📐 Размер поля: ${GRID_SIZE}x${GRID_SIZE}`);
-    console.log(`📏 Размер клетки: ${CELL_SIZE}px`);
 }
 
-// Запускаем
 init();
 
-// ========== КЛАВИШИ ==========
+// Клавиши
 document.addEventListener('keydown', (e) => {
     if (isTraining) return;
 
@@ -723,5 +757,16 @@ document.addEventListener('keydown', (e) => {
     const newDir = keyMap[e.key];
     if (newDir && !(direction.dx === -newDir.dx && direction.dy === -newDir.dy)) {
         nextDirection = newDir;
+    }
+});
+
+// Горячие клавиши для скорости
+document.addEventListener('keydown', (e) => {
+    if (e.key === '=' || e.key === '+') {
+        e.preventDefault();
+        changeSpeed(20);
+    } else if (e.key === '-' || e.key === '_') {
+        e.preventDefault();
+        changeSpeed(-20);
     }
 });

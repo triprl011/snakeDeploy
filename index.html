@@ -48,13 +48,20 @@
                     <button id="startBtn" onclick="startTraining()">▶ Начать</button>
                     <button id="pauseBtn" onclick="togglePause()">⏸ Пауза</button>
                     <button id="resetBtn" onclick="resetGame()">🔄 Сброс</button>
-                    <button id="speedBtn" onclick="toggleSpeed()">⚡ 1x</button>
+                    <div class="speed-controls">
+                        <button id="speedDownBtn" onclick="changeSpeed(-50)">➖</button>
+                        <span id="speedDisplay">100ms</span>
+                        <button id="speedUpBtn" onclick="changeSpeed(50)">➕</button>
+                    </div>
                 </div>
             </div>
 
             <div class="game-right">
                 <div class="chart-container">
                     <canvas id="scoreChart"></canvas>
+                </div>
+                <div class="chart-container">
+                    <canvas id="rewardChart"></canvas>
                 </div>
                 <div class="chart-container">
                     <canvas id="lossChart"></canvas>
