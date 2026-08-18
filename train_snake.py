@@ -6,7 +6,10 @@ import random
 import json
 import os
 import math
+import sys
+import time
 from collections import deque
+from datetime import datetime
 
 # ========== НАСТРОЙКИ ==========
 GRID_SIZE = 10
@@ -24,12 +27,17 @@ V_MIN = -100
 V_MAX = 300
 
 # Обучение
-EPISODES = 100
 UPDATE_EVERY = 2
 TARGET_UPDATE = 50
 MIN_REPLAY_SIZE = 500
 ALPHA = 0.6
 BETA = 0.4
+
+# ========== ЦЕЛЕВЫЕ ПАРАМЕТРЫ ==========
+TARGET_SCORE = 5  # Минимальный средний счет
+MAX_EPISODES = 500  # Максимум эпизодов (защита от бесконечного обучения)
+CHECK_INTERVAL = 10  # Проверка каждые N эпизодов
+PATIENCE = 5  # Сколько раз подряд можно не улучшать результат
 
 
 # ========== NOISY LAYER ==========
@@ -109,17 +117,13 @@ class RainbowDQN(nn.Module):
 
 # ========== WRAPPER ДЛЯ ONNX ==========
 class ONNXWrapper(nn.Module):
-    """Обертка для экспорта в ONNX - только Q-values"""
-
     def __init__(self, model):
         super().__init__()
-        # Копируем архитектуру без Noisy слоев
         self.fc1 = nn.Linear(model.fc1.in_features, model.fc1.out_features)
         self.fc2 = nn.Linear(model.fc2.in_features, model.fc2.out_features)
         self.value = nn.Linear(model.value.in_features, model.value.out_features)
         self.advantage = nn.Linear(model.advantage.in_features, model.advantage.out_features)
 
-        # Копируем веса (му)
         self.fc1.weight.data = model.fc1.weight_mu.data.clone()
         self.fc1.bias.data = model.fc1.bias_mu.data.clone()
         self.fc2.weight.data = model.fc2.weight_mu.data.clone()
@@ -142,7 +146,6 @@ class ONNXWrapper(nn.Module):
         q = v + a - a.mean(dim=1, keepdim=True)
         q = torch.softmax(q, dim=2)
 
-        # Вычисляем Q-values
         support = torch.linspace(self.v_min, self.v_max, self.atoms).to(x.device)
         q_values = (q * support).sum(dim=2)
         return q_values
@@ -290,6 +293,9 @@ class RainbowAgent:
         self.memory = PrioritizedReplayBuffer(BUFFER_SIZE, ALPHA, BETA)
         self.step_count = 0
         self.losses = []
+        self.best_score = 0
+        self.best_model_state = None
+
         print(f"🌈 Rainbow DQN на {self.device}")
         print(f"📐 Поле: {GRID_SIZE}x{GRID_SIZE}")
 
@@ -361,19 +367,85 @@ class RainbowAgent:
         self.target_model.reset_noise()
 
 
-# ========== ОБУЧЕНИЕ ==========
-def train():
+# ========== ВАЛИДАЦИЯ МОДЕЛИ ==========
+def validate_model(agent, num_games=20, verbose=True):
+    """Проверяет качество модели на нескольких играх"""
+    game = SnakeGame()
+    scores = []
+    total_rewards = []
+
+    for i in range(num_games):
+        state = game.reset()
+        episode_score = 0
+        episode_reward = 0
+
+        while not game.game_over:
+            action = agent.act(state)
+            state, reward, done = game.step(action)
+            episode_score = game.score
+            episode_reward += reward
+
+        scores.append(episode_score)
+        total_rewards.append(episode_reward)
+
+    avg_score = np.mean(scores)
+    max_score = np.max(scores)
+    min_score = np.min(scores)
+    avg_reward = np.mean(total_rewards)
+
+    return {
+        'avg_score': avg_score,
+        'max_score': max_score,
+        'min_score': min_score,
+        'scores': scores,
+        'avg_reward': avg_reward
+    }
+
+
+def check_model_quality(agent, num_games=20):
+    """Проверяет качество модели"""
+    results = validate_model(agent, num_games, verbose=False)
+    return results
+
+
+# ========== ОБУЧЕНИЕ ДО РЕЗУЛЬТАТА ==========
+def train_until_good():
+    print("=" * 70)
+    print("🐍 SNAKE AI - АВТОМАТИЧЕСКОЕ ОБУЧЕНИЕ ДО РЕЗУЛЬТАТА")
+    print("=" * 70)
+    print(f"🎯 Целевой средний счет: {TARGET_SCORE}")
+    print(f"📊 Проверка каждые {CHECK_INTERVAL} эпизодов")
+    print(f"🔄 Максимум эпизодов: {MAX_EPISODES}")
+    print("=" * 70)
+
     agent = RainbowAgent()
     game = SnakeGame()
+
+    scores = []
+    rewards_history = []
+    losses_history = []
+    validation_history = []
+
+    episode = 0
     best_score = 0
-    scores, rewards_history, losses_history = [], [], []
-    print("=" * 60)
-    print("🌈 НАЧАЛО ОБУЧЕНИЯ (поле 10x10)")
-    print("=" * 60)
-    for episode in range(EPISODES):
+    best_avg_score = 0
+    no_improvement = 0
+    start_time = time.time()
+
+    # Создаем файл лога
+    log_file = open('training_log.txt', 'w')
+    log_file.write("=" * 70 + "\n")
+    log_file.write("🐍 TRAINING LOG\n")
+    log_file.write(f"Start: {datetime.now()}\n")
+    log_file.write(f"Target Score: {TARGET_SCORE}\n")
+    log_file.write("=" * 70 + "\n\n")
+
+    while episode < MAX_EPISODES:
+        # Один эпизод
         state = game.reset()
         episode_reward = 0
         episode_losses = []
+
         while not game.game_over:
             action = agent.act(state)
             next_state, reward, done = game.step(action)
@@ -383,85 +455,246 @@ def train():
                 episode_losses.append(loss)
             state = next_state
             episode_reward += reward
+
+        episode += 1
         agent.reset_noise()
+
         scores.append(game.score)
         rewards_history.append(episode_reward)
-        losses_history.append(np.mean(episode_losses) if episode_losses else 0)
+        avg_loss = np.mean(episode_losses) if episode_losses else 0
+        losses_history.append(avg_loss)
+
         if game.score > best_score:
             best_score = game.score
-            torch.save(agent.model.state_dict(), 'best_model.pt')
-            print(f"🏆 НОВЫЙ РЕКОРД: {best_score} (эпизод {episode})")
+
+        # Проверка каждые N эпизодов
+        if episode % CHECK_INTERVAL == 0:
+            print(f"\n🔍 ПРОВЕРКА НА ЭПИЗОДЕ {episode}...")
+
+            validation_results = check_model_quality(agent, num_games=20)
+            avg_score = validation_results['avg_score']
+
+            validation_history.append({
+                'episode': episode,
+                'avg_score': avg_score,
+                'max_score': validation_results['max_score'],
+                'min_score': validation_results['min_score']
+            })
+
+            # Логируем
+            log_entry = (
+                f"Episode: {episode}\n"
+                f"  Avg Score: {avg_score:.1f}\n"
+                f"  Best Score: {best_score}\n"
+                f"  Max: {validation_results['max_score']}\n"
+                f"  Min: {validation_results['min_score']}\n"
+                f"  Loss: {avg_loss:.4f}\n"
+                f"  Time: {time.time() - start_time:.1f}s\n"
+                f"  Buffer: {len(agent.memory)}\n"
+                f"  {'✅ PASSED' if avg_score >= TARGET_SCORE else '❌ FAILED'}\n"
+                f"{'-' * 40}\n"
+            )
+            log_file.write(log_entry)
+            log_file.flush()
+
+            print(f"📊 Средний счет: {avg_score:.1f} (цель: {TARGET_SCORE})")
+            print(f"🏆 Лучший счет: {best_score}")
+            print(f"📦 Буфер: {len(agent.memory)}")
+            print(f"⏱️ Время: {time.time() - start_time:.1f}с")
+
+            # Проверяем достижение цели
+            if avg_score >= TARGET_SCORE:
+                print("\n" + "=" * 70)
+                print("🎉 МОДЕЛЬ ДОСТИГЛА ЦЕЛЕВОГО КАЧЕСТВА!")
+                print(f"   Средний счет: {avg_score:.1f} >= {TARGET_SCORE}")
+                print("=" * 70)
+                log_file.write("\n🎉 MODEL REACHED TARGET!\n")
+                log_file.close()
+
+                # Сохраняем модель
+                print("\n💾 Сохраняем модель...")
+                save_success = save_model(agent, scores, losses_history, rewards_history, validation_history)
+
+                if save_success:
+                    print("\n✅ Модель сохранена успешно!")
+                else:
+                    print("\n⚠️ Модель сохранена, но с предупреждениями")
+
+                print(f"\n📊 Итоговая статистика:")
+                print(f"   Эпизодов: {episode}")
+                print(f"   Время обучения: {time.time() - start_time:.1f}с")
+                print(f"   Лучший счет: {best_score}")
+                print(f"   Средний счет: {avg_score:.1f}")
+                return True
+
+            # Проверяем улучшение
+            if avg_score > best_avg_score:
+                best_avg_score = avg_score
+                no_improvement = 0
+                # Сохраняем лучшую модель
+                torch.save(agent.model.state_dict(), 'best_validation_model.pt')
+                print(f"⭐ Новая лучшая модель! Средний счет: {avg_score:.1f}")
+            else:
+                no_improvement += 1
+                print(f"⏳ Нет улучшения ({no_improvement}/{PATIENCE})")
+
+                if no_improvement >= PATIENCE:
+                    print(f"\n⚠️ Нет улучшения {PATIENCE} проверок подряд")
+                    print(f"   Последний средний счет: {avg_score:.1f}")
+                    print(f"   Лучший средний счет: {best_avg_score:.1f}")
+                    print("   Продолжаем обучение...")
+
+        # Вывод прогресса
         if episode % 5 == 0:
-            avg_score = np.mean(scores[-10:]) if scores else 0
-            avg_loss = np.mean(losses_history[-10:]) if losses_history else 0
+            avg_recent = np.mean(scores[-10:]) if scores else 0
             print(f"📊 Эпизод {episode:4d} | Счет: {game.score:3d} | "
-                  f"Ср. счет: {avg_score:5.1f} | Лучший: {best_score:3d} | "
+                  f"Ср. счет: {avg_recent:5.1f} | Лучший: {best_score:3d} | "
                   f"Loss: {avg_loss:.4f}")
-    print("=" * 60)
-    print(f"✅ ОБУЧЕНИЕ ЗАВЕРШЕНО! Лучший счет: {best_score}")
-    return agent, scores, losses_history, rewards_history
+
+    # Если достигли максимума эпизодов
+    print("\n" + "=" * 70)
+    print("⚠️ ДОСТИГНУТ МАКСИМУМ ЭПИЗОДОВ")
+    print(f"   Последний средний счет: {validation_history[-1]['avg_score']:.1f} (цель: {TARGET_SCORE})")
+    print("=" * 70)
+    log_file.write("\n⚠️ REACHED MAX EPISODES\n")
+    log_file.close()
+
+    # Сохраняем лучшую найденную модель
+    print("\n💾 Сохраняем лучшую найденную модель...")
+    if os.path.exists('best_validation_model.pt'):
+        # Загружаем лучшую модель
+        best_model = RainbowDQN(STATE_SIZE, ACTION_SIZE, ATOMS, V_MIN, V_MAX)
+        best_model.load_state_dict(torch.load('best_validation_model.pt'))
+
+        class DummyAgent:
+            def __init__(self, model):
+                self.model = model
+                self.device = 'cpu'
+
+            def act(self, state):
+                self.model.eval()
+                with torch.no_grad():
+                    state_tensor = torch.FloatTensor(state).unsqueeze(0)
+                    q_values = self.model.get_q_values(state_tensor)
+                    return q_values.argmax().item()
+
+        dummy_agent = DummyAgent(best_model)
+        save_model(dummy_agent, scores, losses_history, rewards_history, validation_history, force=True)
+    else:
+        save_model(agent, scores, losses_history, rewards_history, validation_history, force=True)
+
+    return False
 
 
 # ========== СОХРАНЕНИЕ ==========
-def save_for_web(agent, scores, losses, rewards):
-    # Сохраняем PyTorch модель
-    torch.save(agent.model.state_dict(), 'model.pt')
-    print("✅ model.pt сохранен")
+def save_model(agent, scores, losses, rewards, validation_history, force=False):
+    """Сохраняет модель"""
+    try:
+        # Сохраняем PyTorch модель
+        if hasattr(agent, 'model'):
+            torch.save(agent.model.state_dict(), 'model.pt')
+        else:
+            torch.save(agent.model.state_dict(), 'model.pt')
+        print("✅ model.pt сохранен")
 
-    # Сохраняем конфиг
-    config = {
-        "input_size": STATE_SIZE,
-        "output_size": ACTION_SIZE,
-        "grid_size": GRID_SIZE,
-        "rainbow": True
-    }
-    with open('model_config.json', 'w') as f:
-        json.dump(config, f, indent=2)
-    print("✅ model_config.json сохранен")
-
-    # Сохраняем историю
-    history = {
-        "scores": scores,
-        "losses": losses,
-        "rewards": rewards,
-        "epsilons": [0.0] * len(scores)
-    }
-    with open('training_history.json', 'w') as f:
-        json.dump(history, f, indent=2)
-    print(f"✅ training_history.json сохранен ({len(scores)} записей)")
-
-    # Конвертируем в ONNX через Wrapper
-    print("🔄 Конвертация в ONNX...")
-    wrapper = ONNXWrapper(agent.model)
-    wrapper.eval()
-
-    dummy_input = torch.randn(1, STATE_SIZE)
-    torch.onnx.export(
-        wrapper,
-        dummy_input,
-        "model.onnx",
-        export_params=True,
-        opset_version=11,
-        do_constant_folding=True,
-        input_names=['input'],
-        output_names=['output'],
-        dynamic_axes={
-            'input': {0: 'batch_size'},
-            'output': {0: 'batch_size'}
+        # Сохраняем конфиг
+        config = {
+            "input_size": STATE_SIZE,
+            "output_size": ACTION_SIZE,
+            "grid_size": GRID_SIZE,
+            "rainbow": True,
+            "target_score": TARGET_SCORE,
+            "episodes": len(scores)
         }
-    )
-    print("✅ model.onnx сохранен")
+        with open('model_config.json', 'w') as f:
+            json.dump(config, f, indent=2)
+        print("✅ model_config.json сохранен")
 
-    # Проверяем размер файла
-    size = os.path.getsize('model.onnx') / 1024
-    print(f"📦 Размер model.onnx: {size:.2f} KB")
+        # Сохраняем историю
+        history = {
+            "scores": scores,
+            "losses": losses,
+            "rewards": rewards,
+            "epsilons": [0.0] * len(scores),
+            "validation_history": validation_history
+        }
+        with open('training_history.json', 'w') as f:
+            json.dump(history, f, indent=2)
+        print(f"✅ training_history.json сохранен ({len(scores)} записей)")
+
+        # Конвертируем в ONNX
+        print("🔄 Конвертация в ONNX...")
+
+        if hasattr(agent, 'model'):
+            wrapper = ONNXWrapper(agent.model)
+        else:
+            wrapper = ONNXWrapper(agent.model)
+
+        wrapper.eval()
+
+        dummy_input = torch.randn(1, STATE_SIZE)
+        torch.onnx.export(
+            wrapper,
+            dummy_input,
+            "model.onnx",
+            export_params=True,
+            opset_version=11,
+            do_constant_folding=True,
+            input_names=['input'],
+            output_names=['output'],
+            dynamic_axes={
+                'input': {0: 'batch_size'},
+                'output': {0: 'batch_size'}
+            }
+        )
+        print("✅ model.onnx сохранен")
+
+        size = os.path.getsize('model.onnx') / 1024
+        print(f"📦 Размер model.onnx: {size:.2f} KB")
+
+        # Сохраняем информацию о валидации
+        validation_info = {
+            "model_saved": True,
+            "timestamp": str(datetime.now()),
+            "target_score": TARGET_SCORE,
+            "avg_score": validation_history[-1]['avg_score'] if validation_history else 0,
+            "best_score": max(scores) if scores else 0,
+            "num_episodes": len(scores),
+            "validation_history": validation_history
+        }
+        with open('validation_info.json', 'w') as f:
+            json.dump(validation_info, f, indent=2)
+        print("✅ validation_info.json сохранен")
+
+        return True
+
+    except Exception as e:
+        print(f"❌ Ошибка сохранения: {e}")
+        return False
 
 
+# ========== ОСНОВНОЙ ЗАПУСК ==========
 if __name__ == "__main__":
-    agent, scores, losses, rewards = train()
-    save_for_web(agent, scores, losses, rewards)
-    print("\n🎉 Все готово для деплоя!")
-    print("📁 Файлы для веба:")
-    print("  - model.onnx")
-    print("  - model_config.json")
-    print("  - training_history.json")
+    # Обучаем до результата
+    success = train_until_good()
+
+    if success:
+        print("\n🎉 Модель успешно обучена и сохранена!")
+        print("\n📁 Файлы для веба:")
+        print("  - model.onnx")
+        print("  - model_config.json")
+        print("  - training_history.json")
+        print("  - validation_info.json")
+    else:
+        print("\n⚠️ Модель сохранена, но не достигла целевого качества")
+        print("   Рекомендуется увеличить MAX_EPISODES или уменьшить TARGET_SCORE")
+
+    # Проверяем созданные файлы
+    print("\n📁 Проверка файлов:")
+    files = ['model.onnx', 'model_config.json', 'training_history.json', 'validation_info.json']
+    for f in files:
+        if os.path.exists(f):
+            size = os.path.getsize(f)
+            print(f"  ✅ {f} ({size} bytes)")
+        else:
+            print(f"  ❌ {f} НЕ СОЗДАН!")
